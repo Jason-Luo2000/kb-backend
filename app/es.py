@@ -47,6 +47,7 @@ def ensure_index() -> None:
                 "page_num_int": {"type": "integer"},
                 "chunk_order_int": {"type": "integer"},
                 "chunk_version_int": {"type": "integer"},
+                "simhash_long": {"type": "long"},  # T10：64bit simhash，锚点重定位用
                 "available_int": {"type": "integer"},
             }
         },

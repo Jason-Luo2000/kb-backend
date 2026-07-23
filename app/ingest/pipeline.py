@@ -9,6 +9,7 @@ from app.config import settings
 from app.db import get_conn
 from app.es import INDEX, get_es
 from app.ingest import chunker, summarizer
+from app.retrieval import simhash
 from app.storage import get_minio
 
 NAMESPACE = uuid.UUID("7b3a2c1e-5d4f-4a8b-9c6e-1f2d3a4b5c6d")
@@ -48,7 +49,14 @@ def ingest_file(file_id: str) -> dict:
     chunks = []
     for c in raw:
         cid = _chunk_id(file_id, doc_version, c["chunk_order"])
-        chunks.append({**c, "chunk_id": cid, "content_hash": hashlib.sha256(c["content"].encode()).hexdigest()})
+        chunks.append(
+            {
+                **c,
+                "chunk_id": cid,
+                "content_hash": hashlib.sha256(c["content"].encode()).hexdigest(),
+                "simhash": simhash.simhash(c["content"]),
+            }
+        )
     # 2. embedding
     vectors = embedder.embed_batch([c["content"] for c in chunks])
     # 3. 写 ES（路 B：doc_type=chunk）
@@ -67,6 +75,7 @@ def ingest_file(file_id: str) -> dict:
                 "page_num_int": c["page"],
                 "chunk_order_int": c["chunk_order"],
                 "chunk_version_int": doc_version,
+                "simhash_long": simhash.to_signed(c["simhash"]),
                 "available_int": 1,
             },
         }
@@ -80,18 +89,19 @@ def ingest_file(file_id: str) -> dict:
         with conn.cursor() as cur:
             cur.executemany(
                 """INSERT INTO kb_chunk(id,file_id,tenant_id,doc_version,chunk_order,content,content_ltks,
-                   section_path,page_num,position,chunk_version,content_hash,sensitivity_level,available)
-                   VALUES (%(id)s,%(file_id)s,%(tid)s,%(dv)s,%(co)s,%(ct)s,%(ct)s,%(sp)s,%(pg)s,null,1,%(ch)s,0,1)""",
+                   section_path,page_num,position,chunk_version,content_hash,simhash,sensitivity_level,available)
+                   VALUES (%(id)s,%(file_id)s,%(tid)s,%(dv)s,%(co)s,%(ct)s,%(ct)s,%(sp)s,%(pg)s,null,1,%(ch)s,%(sh)s,0,1)""",
                 [
                     {
                         "id": c["chunk_id"], "file_id": file_id, "tid": tenant_id, "dv": doc_version,
                         "co": c["chunk_order"], "ct": c["content"], "sp": c["section_path"],
-                        "pg": c["page"], "ch": c["content_hash"],
+                        "pg": c["page"], "ch": c["content_hash"], "sh": simhash.to_signed(c["simhash"]),
                     }
                     for c in chunks
                 ],
             )
     # 5. 总结 + 锚点（路 A）
+    chunk_by_id = {c["chunk_id"]: c for c in chunks}
     summary_items = summarizer.summarize_file(chunks) if f.get("summary_enabled") else []
     covered = {cid for it in summary_items for cid in it["source_chunk_ids"]}
     coverage_ratio = (len(covered) / len(chunks)) if chunks else 0.0
@@ -106,17 +116,28 @@ def ingest_file(file_id: str) -> dict:
                     srcs = [str(s) for s in it["source_chunk_ids"]]
                     cur.execute(
                         """INSERT INTO kb_summary_doc(id,file_id,tenant_id,summary_type,heading_path,content_md,
-                           summary_text,source_chunk_ids,coverage_ratio,summary_version)
-                           VALUES (%s,%s,%s,'section_summary',%s,%s,%s,%s,%s,1)""",
-                        (sid, file_id, tenant_id, "/".join(it.get("heading_path") or []), it["summary_text"], it["summary_text"], srcs, coverage_ratio),
+                           summary_text,content_fingerprint,source_chunk_ids,coverage_ratio,summary_version)
+                           VALUES (%s,%s,%s,'section_summary',%s,%s,%s,%s,%s,%s,1)""",
+                        (
+                            sid, file_id, tenant_id, "/".join(it.get("heading_path") or []),
+                            it["summary_text"], it["summary_text"], simhash.simhash_hex(it["summary_text"]),
+                            srcs, coverage_ratio,
+                        ),
                     )
-                    # 锚点指向首个 source chunk（MVP 简版）
+                    # 锚点：target=首个 source chunk；fingerprint=目标 chunk 文本 simhash（重定位用，非 summary 文本）；
+                    # target_content_hash=目标 chunk 文本 sha256（精确校验）
                     tgt = srcs[0] if srcs else None
-                    fp = summarizer.fingerprint(it["summary_text"])
+                    tgt_content = chunk_by_id.get(tgt, {}).get("content", "") if tgt else ""
                     cur.execute(
-                        """INSERT INTO kb_anchor(id,summary_doc_id,file_id,section_path,target_chunk_id,fingerprint,validity,anchor_version)
-                           VALUES (%s,%s,%s,%s,%s,%s,'valid',1)""",
-                        (str(uuid.uuid4()), sid, file_id, "/".join(it.get("heading_path", [])) or None, tgt, fp),
+                        """INSERT INTO kb_anchor(id,summary_doc_id,file_id,section_path,target_chunk_id,
+                           target_content_hash,fingerprint,validity,anchor_version)
+                           VALUES (%s,%s,%s,%s,%s,%s,%s,'valid',1)""",
+                        (
+                            str(uuid.uuid4()), sid, file_id, "/".join(it.get("heading_path", [])) or None,
+                            tgt,
+                            hashlib.sha256(tgt_content.encode()).hexdigest() if tgt_content else None,
+                            simhash.simhash_hex(tgt_content) if tgt_content else None,
+                        ),
                     )
                     sum_actions.append(
                         {
@@ -131,6 +152,7 @@ def ingest_file(file_id: str) -> dict:
                                 "doc_type_kwd": "summary",
                                 "is_summary_int": 1,
                                 "source_chunk_ids_kwd": srcs,
+                                "coverage_ratio_f": coverage_ratio,  # T10：路 A 命中降权用
                                 "available_int": 1,
                             },
                         }

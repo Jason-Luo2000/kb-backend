@@ -39,6 +39,8 @@ class Settings(BaseSettings):
     path_a_theta: float = 0.2  # 路 A gross-miss 软门控（生产真 embedding 用 0.2，验证哈希伪向量设 -1）
     path_a_timeout_ms: int = 1000
     path_b_timeout_ms: int = 600
+    # T10 锚点重定位 simhash Hamming 阈值（校准：重切分最优匹配中位 4/最大 7，不相关 ~30）
+    path_a_relocate_hamming: int = 8  # relocated 判据（边界漂移仍命中）；valid 用紧阈值 3（块未变）
 
 
 settings = Settings()

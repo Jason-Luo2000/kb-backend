@@ -1,6 +1,5 @@
 """总结/目录文档生成（路 A 检索层）。prompt 来自方案附录 D.1：
 JSON structured output + chunk_id 白名单约束 + self-check，防幻觉。"""
-import hashlib
 import json
 
 import tiktoken
@@ -73,8 +72,3 @@ def summarize_file(
     for w in windows:
         out.extend(summarize_window(w))
     return out
-
-
-def fingerprint(text: str) -> str:
-    """MVP：md5 前 16 位作段落指纹（中期换 simhash + LSH 重定位）。"""
-    return hashlib.md5(text.encode("utf-8")).hexdigest()[:16]

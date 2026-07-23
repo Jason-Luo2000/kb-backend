@@ -9,8 +9,9 @@ def rrf_merge(path_a: list[dict], path_b: list[dict], k: int = 60) -> list[dict]
             if cid in seen:
                 continue
             seen.add(cid)
+            weight = float(h.get("weight", 1.0))  # T10：路 A 低 coverage 命中降权
             b = buckets.setdefault(cid, {"hit": h, "score": 0.0, "paths": set()})
-            b["score"] += 1.0 / (k + rank)
+            b["score"] += weight / (k + rank)
             b["paths"].add(tag)
 
     if path_a:

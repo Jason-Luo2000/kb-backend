@@ -46,16 +46,17 @@ def retrieve(
         return {"hits": [], "route_stats": {"path_a": 0, "path_b": 0, "degraded": "both_empty", "latency_ms": 0}}
 
     q_vec = embedder.embed(query)
-    a: list[dict] = []
-    b: list[dict] = []
+    a_meta = {"hits": [], "degraded": "no_path", "completed": 0, "total": 0}
     with ThreadPoolExecutor(max_workers=2) as ex:
         tasks = {}
         if mode in ("hybrid", "summary"):
             tasks["a"] = ex.submit(path_a.search, q_vec, query, file_ids, principal.tenant_id, clearance)
         if mode in ("hybrid", "embedding"):
             tasks["b"] = ex.submit(path_b.search, q_vec, query, file_ids, principal.tenant_id, clearance)
-        a = tasks["a"].result() if "a" in tasks else []
+        if "a" in tasks:
+            a_meta = tasks["a"].result()
         b = tasks["b"].result() if "b" in tasks else []
+    a = a_meta["hits"]
 
     merged = fusion.rrf_merge(a, b)[:top_k]
     # post-verify：逐 chunk 回查租户，丢弃越权命中（Phase 6 guard）
@@ -63,11 +64,19 @@ def retrieve(
 
     merged = guard.postverify(merged, principal, file_ids)
     degraded = "none" if (a and b) else ("b_only" if b else ("a_only" if a else "both_empty"))
+    pa_rate = round(a_meta["completed"] / a_meta["total"], 3) if a_meta["total"] else None
     latency_ms = int((time.time() - t0) * 1000)
     _log_query(principal, query, file_ids, len(a), len(b), degraded, latency_ms)
     return {
         "hits": [_hit_view(h) for h in merged],
-        "route_stats": {"path_a": len(a), "path_b": len(b), "degraded": degraded, "latency_ms": latency_ms},
+        "route_stats": {
+            "path_a": len(a),
+            "path_b": len(b),
+            "degraded": degraded,
+            "latency_ms": latency_ms,
+            "path_a_completed_rate": pa_rate,
+            "path_a_degraded_reason": a_meta["degraded"],
+        },
     }
 
 

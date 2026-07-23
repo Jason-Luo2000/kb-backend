@@ -106,6 +106,7 @@ CREATE TABLE IF NOT EXISTS kb_chunk (
   position JSONB,
   chunk_version INT NOT NULL DEFAULT 1,
   content_hash CHAR(64),
+  simhash BIGINT,                                    -- T10：64bit simhash，锚点重定位用
   sensitivity_level SMALLINT DEFAULT 0,             -- clearance ABAC 载体（T9 全 0，字段就位）
   available SMALLINT DEFAULT 1
 );
@@ -121,6 +122,7 @@ CREATE TABLE IF NOT EXISTS kb_summary_doc (
   heading_path TEXT,
   content_md TEXT NOT NULL,
   summary_text TEXT,
+  content_fingerprint CHAR(16),                      -- T10：summary 文本 simhash(hex16)，summary 身份用
   source_chunk_ids UUID[] NOT NULL,                  -- 锚点指回原文
   coverage_ratio FLOAT,
   summary_version INT NOT NULL DEFAULT 1,
@@ -133,9 +135,12 @@ CREATE TABLE IF NOT EXISTS kb_anchor (
   summary_doc_id UUID NOT NULL REFERENCES kb_summary_doc(id) ON DELETE CASCADE,
   file_id UUID NOT NULL,
   section_path VARCHAR(512) NOT NULL,
-  target_chunk_id UUID,                              -- MVP 锚点=chunk_id（稳定锚重定位见 T10）
-  fingerprint CHAR(16),
-  validity VARCHAR(16) DEFAULT 'valid',
+  target_chunk_id UUID,                              -- 运行期缓存（T10 可被重定位改写）
+  target_content_hash CHAR(64),                      -- T10：目标 chunk 文本 sha256（精确校验）
+  fingerprint CHAR(16),                              -- T10：目标 chunk 文本 simhash(hex16)，重定位用
+  validity VARCHAR(16) DEFAULT 'valid',              -- T10：valid|stale|relocated
+  relocated_from_chunk_id UUID,                      -- T10：重定位前的原 chunk_id（可审计）
+  verified_against_chunks_version INT,               -- T10：重定位时对齐的 chunk_version
   anchor_version INT NOT NULL DEFAULT 1
 );
 CREATE INDEX IF NOT EXISTS idx_anchor_summary ON kb_anchor(summary_doc_id);
