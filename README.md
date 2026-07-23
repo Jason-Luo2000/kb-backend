@@ -1,7 +1,7 @@
 # kb-backend · 企业级知识库后端（MVP 端到端最小闭环）
 
 「总结文档导航 + 向量召回」双路并行的知识库后端，方案见 `~/Developer/pi/KB-AGENT-PLAN.md`。
-本文档是 **前期 MVP**：单租户、PDF/MD、naive 分块、双路召回（路 A 简版 + 路 B）、RRF 融合、引用溯源，pi 扩展接入。
+本文档是 **前期 MVP + 中期 T9**：双路召回（路 A 简版 + 路 B）、RRF 融合、引用溯源、pi 扩展接入；T9 已叠加**多租户 + 用户↔KB 授权 + ACL**（单租户→多租户，零跨租户泄露）。
 
 ## 架构（MVP）
 
@@ -82,6 +82,9 @@ KB_BACKEND_URL=http://localhost:8001 KB_API_KEY=kb_dev_api_key \
 ```bash
 pip install -e sdk/                 # 装 kb-sdk（或直接用 scripts/）
 python scripts/e2e_demo.py          # 上传样例 → 摄取 → 双路检索 → 带引用答案
+
+# 跨租户红队（T9 验收 A5，需服务在跑）：双租户互不可见 / read_anchor 不越权 / grant 可见性
+KB_BACKEND_URL=http://localhost:8001 .venv/bin/python scripts/cross_tenant_test.py
 ```
 
 ## pi 接入
@@ -102,11 +105,31 @@ scripts/     e2e 验证与工具
 tests/       测试
 ```
 
-## MVP 与方案的差异（刻意简化）
+## 多租户与权限（T9）
 
-- 单租户、无细粒度 ACL（仅 API key 最低认证 + 审计 + 限流，红队合规底线）
+中期第一阶段已叠加多租户 + ACL，**跨租户零泄露**（验收 A5）。三层纵深：
+
+1. **应用层**：所有 file_id 解析收敛到 `tenant_id ∩ AuthzDecision.allowed_kb_ids`（[orchestrator._allowed_file_ids](app/retrieval/orchestrator.py)）。`/v1/read-anchor` 与 `/v1/search` 同级 ACL——任意 docId 不再能读未授权原文窗口（修复 MVP 的越权点）。
+2. **ES 预过滤**：双路 filter 强制 `tenant_id_kwd` + `sensitivity<=clearance`（[path_a](app/retrieval/path_a.py)/[path_b](app/retrieval/path_b.py)）；摄取时 stamp tenant。
+3. **post-verify**：RRF 融合后逐 chunk 回查租户，丢弃越权命中 + `SEC_VIOLATION` 审计（[guard.postverify](app/retrieval/guard.py)）。
+
+**认证**：API-key → `(tenant_id,user_id)`（sha256 查 `kb_api_key`）。JWT/SSO 是后期 T25。bootstrap 幂等种 default 租户/owner/api_key → 现有 `KB_API_KEY`+`KB_USER_ID` 客户端无需改动即落入 default 租户。
+
+**授权模型**（[app/authz.py](app/authz.py)，Python，接口 Cedar 形状，后期可 slot in cedar-py）：RBAC（租户角色 owner/admin/editor/viewer）+ `kb_grant`（用户↔KB 显式授权，含过期/撤销）+ `clearance>=sensitivity`（ABAC）。租户 owner/admin 见全部 kb；editor 见 team/tenant 可见 kb；viewer 仅显式 grant。
+
+**端点**：`GET /v1/kbs`（带 role）、`POST /v1/kbs`（stamp tenant+owner）、`PUT/DELETE /v1/acl`（grant/revoke，仅 kb admin+，**高危非 LLM 工具**）。
+
+> PG 行级安全（RLS）作为第四层纵深**缓做**——仅在非 superuser 应用角色下生效，需拆角色 + 解认证鸡生蛋，列为后期生产基础设施专项。A5 已由上述三层满足。
+
+---
+
+## 已实现 / 刻意简化（与方案的差异）
+
+**T9 已补（多租户 + ACL）**：tenant 隔离（应用层 + ES + post-verify 三层）、`kb_grant`、AuthzEngine、`/v1/acl`、`read_anchor` 越权修复、审计落 tenant/user。PG RLS 第四层缓做（见上）。
+
+**仍简化（后续任务）**：
 - 解析用 pdfplumber（页码定位），后期换 DeepDoc（bbox）
 - embedding 用智谱 embedding-3，后期换 BGE-M3（改适配器）
-- 路 A 简版：锚点用 chunk_id（MVP 文档不变可接受），稳定锚/simhash 重定位中期补
-- 摄取同步处理（Redis Streams 异步中期补）
+- 路 A 简版：锚点用 chunk_id（MVP 文档不变可接受），simhash 稳定锚 / 重定位 → **T10**
+- 摄取同步处理（Redis Streams 异步）→ T11；增量更新 / 幂等上传 → T12；审计哈希链 → T15；JWT/SSO → T25
 - rerank 可选（MVP 用 RRF 基线排序）
