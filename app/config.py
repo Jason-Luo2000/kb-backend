@@ -25,7 +25,10 @@ class Settings(BaseSettings):
     # 服务
     kb_api_key: str = "kb_dev_api_key"
     kb_backend_url: str = "http://localhost:8000"
-    kb_user_id: str = "u_demo"
+    kb_user_id: str = "u_demo"  # default 用户的 external_id；bootstrap 据此种 owner + api_key
+
+    # 多租户（T9）：bootstrap 种 default 租户/owner/api_key，使 MVP 客户端无需改动即落入 default 租户
+    default_tenant_name: str = "default"
 
     # 摄取 / 检索参数
     chunk_token_num: int = 512

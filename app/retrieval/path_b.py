@@ -1,13 +1,23 @@
-"""路 B：BM25 + KNN 混合召回基线（方案 §4.3）。ES 顶层 knn + query 分数自动合并。"""
+"""路 B：BM25 + KNN 混合召回基线（方案 §4.3）。ES 顶层 knn + query 分数自动合并。
+T9：filter 强制 tenant_id_kwd + sensitivity<=clearance（file_id allowlist 是主防线，此为纵深）。"""
 from app.es import INDEX, get_es
 
 
-def search(q_vec: list[float], query_text: str, file_ids: list[str], top_n: int = 24) -> list[dict]:
+def search(
+    q_vec: list[float],
+    query_text: str,
+    file_ids: list[str],
+    tenant_id: str,
+    clearance: int = 4,
+    top_n: int = 24,
+) -> list[dict]:
     if not file_ids:
         return []
     filt = [
         {"term": {"doc_type_kwd": "chunk"}},
         {"term": {"available_int": 1}},
+        {"term": {"tenant_id_kwd": tenant_id}},
+        {"range": {"sensitivity_int": {"lte": clearance}}},
         {"terms": {"file_id_kwd": file_ids}},
     ]
     body = {

@@ -38,6 +38,8 @@ def ingest_file(file_id: str) -> dict:
     if not f:
         raise FileNotFoundError(file_id)
 
+    tenant_id = str(f["tenant_id"])
+
     # 0. 解析
     blocks = parser.parse_bytes(_read_file_bytes(f["storage_key"]), f.get("mime"), f["name"] or "")
     # 1. 分块
@@ -59,6 +61,8 @@ def ingest_file(file_id: str) -> dict:
                 "content_tks": c["content"],
                 "q_vec_vec": vectors[i],
                 "file_id_kwd": file_id,
+                "tenant_id_kwd": tenant_id,
+                "sensitivity_int": 0,
                 "doc_type_kwd": "chunk",
                 "page_num_int": c["page"],
                 "chunk_order_int": c["chunk_order"],
@@ -75,12 +79,12 @@ def ingest_file(file_id: str) -> dict:
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.executemany(
-                """INSERT INTO kb_chunk(id,file_id,doc_version,chunk_order,content,content_ltks,
-                   section_path,page_num,position,chunk_version,content_hash,available)
-                   VALUES (%(id)s,%(file_id)s,%(dv)s,%(co)s,%(ct)s,%(ct)s,%(sp)s,%(pg)s,null,1,%(ch)s,1)""",
+                """INSERT INTO kb_chunk(id,file_id,tenant_id,doc_version,chunk_order,content,content_ltks,
+                   section_path,page_num,position,chunk_version,content_hash,sensitivity_level,available)
+                   VALUES (%(id)s,%(file_id)s,%(tid)s,%(dv)s,%(co)s,%(ct)s,%(ct)s,%(sp)s,%(pg)s,null,1,%(ch)s,0,1)""",
                 [
                     {
-                        "id": c["chunk_id"], "file_id": file_id, "dv": doc_version,
+                        "id": c["chunk_id"], "file_id": file_id, "tid": tenant_id, "dv": doc_version,
                         "co": c["chunk_order"], "ct": c["content"], "sp": c["section_path"],
                         "pg": c["page"], "ch": c["content_hash"],
                     }
@@ -101,10 +105,10 @@ def ingest_file(file_id: str) -> dict:
                     sid = str(uuid.uuid4())
                     srcs = [str(s) for s in it["source_chunk_ids"]]
                     cur.execute(
-                        """INSERT INTO kb_summary_doc(id,file_id,summary_type,heading_path,content_md,
+                        """INSERT INTO kb_summary_doc(id,file_id,tenant_id,summary_type,heading_path,content_md,
                            summary_text,source_chunk_ids,coverage_ratio,summary_version)
-                           VALUES (%s,%s,'section_summary',%s,%s,%s,%s,%s,1)""",
-                        (sid, file_id, "/".join(it.get("heading_path") or []), it["summary_text"], it["summary_text"], srcs, coverage_ratio),
+                           VALUES (%s,%s,%s,'section_summary',%s,%s,%s,%s,%s,1)""",
+                        (sid, file_id, tenant_id, "/".join(it.get("heading_path") or []), it["summary_text"], it["summary_text"], srcs, coverage_ratio),
                     )
                     # 锚点指向首个 source chunk（MVP 简版）
                     tgt = srcs[0] if srcs else None
@@ -122,6 +126,8 @@ def ingest_file(file_id: str) -> dict:
                                 "content_tks": it["summary_text"],
                                 "q_vec_vec": sum_vecs[i],
                                 "file_id_kwd": file_id,
+                                "tenant_id_kwd": tenant_id,
+                                "sensitivity_int": 0,
                                 "doc_type_kwd": "summary",
                                 "is_summary_int": 1,
                                 "source_chunk_ids_kwd": srcs,

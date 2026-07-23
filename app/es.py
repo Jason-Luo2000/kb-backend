@@ -39,6 +39,8 @@ def ensure_index() -> None:
                     "similarity": "cosine",
                 },
                 "file_id_kwd": {"type": "keyword"},
+                "tenant_id_kwd": {"type": "keyword"},  # T9：租户隔离纵深过滤
+                "sensitivity_int": {"type": "integer"},  # T9：clearance ABAC（sensitivity<=clearance）
                 "doc_type_kwd": {"type": "keyword"},  # chunk | summary | toc
                 "is_summary_int": {"type": "integer"},
                 "source_chunk_ids_kwd": {"type": "keyword"},

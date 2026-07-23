@@ -1,6 +1,7 @@
 """路 A（简版）：检索总结文档 → 取 source_chunk_ids 锚点 → 选首个 → 回原文窗口 →
 逐 chunk 软校验（红队 B1：规避 BGE 上限 + 保留判别力）剔 gross miss。
 
+T9：filter 强制 tenant_id_kwd + sensitivity<=clearance；read_window 加 tenant_id 收敛。
 中期补：simhash 稳定锚重定位、置信度+section 锚点选择、邻域扩展、软截止只返已校验。"""
 import math
 
@@ -22,30 +23,45 @@ def _cos(a: list[float], b: list[float]) -> float:
     return dot / (na * nb) if na and nb else 0.0
 
 
-def read_window(file_id: str, chunk_id: str, before: int = 2, after: int = 4) -> list[dict]:
+def read_window(file_id: str, chunk_id: str, before: int = 2, after: int = 4, tenant_id: str | None = None) -> list[dict]:
     from psycopg.rows import dict_row
 
     with get_conn() as conn:
         with conn.cursor(row_factory=dict_row) as cur:
-            cur.execute("SELECT chunk_order FROM kb_chunk WHERE id=%s AND available=1", (chunk_id,))
+            cur.execute(
+                "SELECT chunk_order FROM kb_chunk WHERE id=%s AND available=1"
+                + (" AND tenant_id=%s" if tenant_id else ""),
+                (chunk_id,) + ((tenant_id,) if tenant_id else ()),
+            )
             r = cur.fetchone()
             if not r:
                 return []
             order = r["chunk_order"]
             cur.execute(
                 """SELECT * FROM kb_chunk WHERE file_id=%s AND available=1
-                   AND chunk_order BETWEEN %s AND %s ORDER BY chunk_order""",
-                (file_id, order - before, order + after),
+                   AND chunk_order BETWEEN %s AND %s"""
+                + (" AND tenant_id=%s" if tenant_id else "")
+                + """ ORDER BY chunk_order""",
+                (file_id, order - before, order + after) + ((tenant_id,) if tenant_id else ()),
             )
             return cur.fetchall()
 
 
-def search(q_vec: list[float], query_text: str, file_ids: list[str], top_k: int = 5) -> list[dict]:
+def search(
+    q_vec: list[float],
+    query_text: str,
+    file_ids: list[str],
+    tenant_id: str,
+    clearance: int = 4,
+    top_k: int = 5,
+) -> list[dict]:
     if not file_ids:
         return []
     filt = [
         {"term": {"doc_type_kwd": "summary"}},
         {"term": {"available_int": 1}},
+        {"term": {"tenant_id_kwd": tenant_id}},
+        {"range": {"sensitivity_int": {"lte": clearance}}},
         {"terms": {"file_id_kwd": file_ids}},
     ]
     body = {
@@ -68,7 +84,7 @@ def search(q_vec: list[float], query_text: str, file_ids: list[str], top_k: int 
             vec = _es_chunk_vec(cid)
             if not vec or _cos(q_vec, vec) < THETA_A:
                 continue  # 软校验剔 gross miss
-            rows = read_window(file_id, cid)
+            rows = read_window(file_id, cid, tenant_id=tenant_id)
             if not rows:
                 continue
             out.append(
