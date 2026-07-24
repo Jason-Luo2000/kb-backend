@@ -123,6 +123,25 @@ tests/       测试
 
 ---
 
+## 版本 GC + ES↔PG 对账（T14）
+
+T11（版本化原子发布）+ T12（增量更新）每次摄取都留下一整代旧版本（旧 chunk 翻 `available=0` 行仍在、旧 summary/anchor 仅版本谓词隐藏、`kb_version` 每次+1、ES 旧 doc 翻 `available_int=0` 永不删、outbox published 行永不清）。旧版本已被版本栅栏 + flip 隐藏，**不影响可见性/正确性**——T14 负责**空间回收 + 漂移修复**（PG 权威、ES 派生）。
+
+**GC / purge**（[app/indexing/gc.py](app/indexing/gc.py)）：按保留窗 `purge *_version < active - gc_retain_versions + 1`（默认 `gc_retain_versions=1`，回滚未实现只保当前）。整版本删除 anchor→summary_doc→chunk→version，ES 删除经 outbox `delete` 事件（与 PG 同事务写、commit 后 drain，旧 doc 已不可见故零检索影响）。审计内联同事务（不调 `audit()`）。并发双保险：advisory lock + `pending_count>0` 跳过；前置守卫断言四 active 指针相等。另含 `prune_outbox`（删 N 天前 published 行，保 pending/failed）。
+
+**对账 reconcile**（[app/indexing/reconcile.py](app/indexing/reconcile.py)）：扫描分类 5 类漂移——`missing`（PG active 行、ES 无 → 原版本 re-embed 重发 `index`，**不调 ingest 防版本膨胀**）、`version_drift`（ES 版本≠active → 重发）、`avail_drift`（PG 可见、ES `available_int=0` → `set_available=1`）、`retired_leak`（ES 可见但属退役版本 → `set_available=0` 保到 GC）、`orphan`（PG 全无 → `delete`）。幂等。
+
+**端点**（[app/routers/admin_ops.py](app/routers/admin_ops.py)，**仅租户 owner、高危非 LLM 工具**，`dryRun` 默认开）：
+- `POST /v1/admin/gc` `{fileId?, dryRun}` — 旧版本 GC（`fileId` 省略=租户全量）
+- `POST /v1/admin/reconcile` `{fileId?, dryRun, repair}` — ES↔PG 对账
+- `POST /v1/admin/outbox/prune` `{retainDays?}` — outbox 修剪
+
+**验证**：`scripts/gc_test.py`、`scripts/reconcile_test.py`（直接调模块、需干净库）。
+
+> 范围边界：GDPR `/purge` + `deleted_at` 两阶段软删（被遗忘权）是 **T20/#31**，不在本期；MinIO 当前只存单 `{file_id}/v1/raw`（无按版本对象），按版本对象回收 N/A。
+
+---
+
 ## 已实现 / 刻意简化（与方案的差异）
 
 **T9 已补（多租户 + ACL）**：tenant 隔离（应用层 + ES + post-verify 三层）、`kb_grant`、AuthzEngine、`/v1/acl`、`read_anchor` 越权修复、审计落 tenant/user。PG RLS 第四层缓做（见上）。
@@ -130,6 +149,6 @@ tests/       测试
 **仍简化（后续任务）**：
 - 解析用 pdfplumber（页码定位），后期换 DeepDoc（bbox）
 - embedding 用智谱 embedding-3，后期换 BGE-M3（改适配器）
-- 路 A 简版：锚点用 chunk_id（MVP 文档不变可接受），simhash 稳定锚 / 重定位 → **T10**
-- 摄取同步处理（Redis Streams 异步）→ T11；增量更新 / 幂等上传 → T12；审计哈希链 → T15；JWT/SSO → T25
+- 路 A 简版：锚点用 chunk_id（MVP 文档不变可接受），simhash 稳定锚 / 重定位 → **T10 已完成**
+- 摄取同步处理 → T11 已完成（outbox + 原子 flip + 版本栅栏）；增量更新 / 幂等上传 → T12 已完成；版本 GC + ES↔PG 对账 → **T14 已完成**；多格式/分块器 → T13；审计哈希链 → T15；监控 → T16；SDK 1.0 → T17；JWT/SSO → T25
 - rerank 可选（MVP 用 RRF 基线排序）

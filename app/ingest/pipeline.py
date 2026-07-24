@@ -285,3 +285,8 @@ def ingest_file(file_id: str) -> dict:
         "coverage": round(coverage_ratio, 3),
         **metrics,
     }
+
+
+# T14：对账 re-publish 复用 source 构造器（确定性 id 幂等 upsert，原版本重发不膨胀版本）
+build_chunk_source = _chunk_source
+build_summary_source = _summary_source

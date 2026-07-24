@@ -90,3 +90,19 @@ def can_write(decision: AuthzDecision, kb_id: str) -> bool:
 def is_kb_admin(decision: AuthzDecision, kb_id: str) -> bool:
     """admin+ 可授权（grant/revoke）。"""
     return CLEARANCE.get(decision.kb_roles.get(kb_id, ""), 0) >= CLEARANCE["admin"]
+
+
+def is_tenant_owner(principal: Principal) -> bool:
+    """严格租户 owner 判定（T14）：直接查 kb_user_tenant.role='owner'。
+
+    不用 decision.clearance>=4——resolve() 的 clearance 会被 per-kb grant 抬到 owner 级，
+    而租户级破坏性运维（GC/对账）必须是真正的租户 owner。
+    """
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT role FROM kb_user_tenant WHERE user_id=%s AND tenant_id=%s",
+                (principal.user_id, principal.tenant_id),
+            )
+            row = cur.fetchone()
+            return bool(row and row[0] == "owner")

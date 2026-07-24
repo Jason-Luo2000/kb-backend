@@ -23,6 +23,9 @@ def _publish(event_type: str, payload) -> None:
             src = es.get(index=INDEX, id=eid)["_source"]  # read-modify-write（FakeES/真 ES 通用）
             src["available_int"] = avail
             es.index(index=INDEX, id=eid, document=src)
+    elif event_type == "delete":
+        for eid in payload["ids"]:  # T14：GC/对账删 ES doc（幂等，缺失 no-op）
+            es.delete(index=INDEX, id=eid)
     else:
         raise ValueError(f"unknown outbox event_type: {event_type}")
 

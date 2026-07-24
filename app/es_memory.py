@@ -49,6 +49,21 @@ class FakeES:
             self._docs[(index, id)] = dict(src)
         return {"result": "created"}
 
+    def delete(self, index, id=None, **kw):
+        # T14：幂等删除（缺失 no-op，对齐真 ES 语义）；GC/对账经 outbox delete 事件调用
+        with _LOCK:
+            existed = (index, id) in self._docs
+            self._docs.pop((index, id), None)
+        return {"result": "deleted" if existed else "not_found"}
+
+    def scan(self, index, source_fields=None):
+        # T14：match_all 等价（对账发现 ES 孤儿用）。返回 [(id, source)]。
+        with _LOCK:
+            items = [(did, dict(src)) for (idx, did), src in self._docs.items() if idx == index]
+        if source_fields:
+            items = [(did, {k: src.get(k) for k in source_fields}) for did, src in items]
+        return items
+
     def get(self, index, id, source_includes=None, **kw):
         src = dict(self._docs.get((index, id), {}))
         if source_includes:
