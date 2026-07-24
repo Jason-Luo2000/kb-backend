@@ -41,6 +41,8 @@ class Settings(BaseSettings):
     path_b_timeout_ms: int = 600
     # T10 锚点重定位 simhash Hamming 阈值（校准：重切分最优匹配中位 4/最大 7，不相关 ~30）
     path_a_relocate_hamming: int = 8  # relocated 判据（边界漂移仍命中）；valid 用紧阈值 3（块未变）
+    # T11 outbox relay
+    outbox_max_attempts: int = 3
 
 
 settings = Settings()

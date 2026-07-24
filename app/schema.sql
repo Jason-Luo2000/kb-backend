@@ -179,3 +179,29 @@ CREATE TABLE IF NOT EXISTS kb_audit_log (            -- append-only（哈希链/
   created_at TIMESTAMPTZ DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_audit_time ON kb_audit_log(created_at DESC);
+
+-- ============ 版本与一致性（T11）============
+CREATE TABLE IF NOT EXISTS kb_version (                -- 评审#25/#6：四元组绑定（一次摄取 doc/chunk/summary/anchor 同进同退）
+  id UUID PRIMARY KEY,
+  file_id UUID NOT NULL REFERENCES kb_file(id) ON DELETE CASCADE,
+  doc_version INT NOT NULL,
+  chunk_version INT NOT NULL,
+  summary_version INT NOT NULL,
+  anchor_version INT NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_version_file ON kb_version(file_id, doc_version DESC);
+
+CREATE TABLE IF NOT EXISTS kb_outbox (                 -- 评审#11：transactional outbox（PG 权威、ES 派生）
+  id BIGSERIAL PRIMARY KEY,
+  aggregate_id UUID NOT NULL,                          -- file_id
+  event_type VARCHAR(24) NOT NULL,                     -- index | set_available
+  payload TEXT NOT NULL,                               -- JSON 文本（TEXT 兼容 SQL_ASCII 服务端；relay 端 json.loads）
+  status VARCHAR(16) DEFAULT 'pending',                -- pending | published | failed
+  attempts INT DEFAULT 0,
+  last_error TEXT,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  published_at TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_outbox_pending ON kb_outbox(aggregate_id, created_at) WHERE published_at IS NULL;
+
