@@ -44,6 +44,22 @@ def upload_doc(kb_id: str, request: Request, file: UploadFile = File(...)):
         raise HTTPException(status_code=403, detail="KB_FORBIDDEN_KB")
     data = file.file.read()
     content_hash = hashlib.sha256(data).hexdigest()
+    # 幂等（#23）：同租户同 content_hash 命中 → 链 kb + 返回已存 file_id，不重摄
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT id, status FROM kb_file WHERE tenant_id=%s AND content_hash=%s",
+                (principal.tenant_id, content_hash),
+            )
+            existed = cur.fetchone()
+            if existed:
+                cur.execute(
+                    "INSERT INTO kb_file_kb(file_id,kb_id,tenant_id) VALUES (%s,%s,%s) ON CONFLICT DO NOTHING",
+                    (str(existed[0]), kb_id, principal.tenant_id),
+                )
+    if existed:
+        audit("UPLOAD", request, kb_ids=[kb_id], result="reused", ua=request.headers.get("user-agent"))
+        return {"docId": str(existed[0]), "status": existed[1], "reused": True}
     file_id = str(uuid.uuid4())
     storage_key = f"{file_id}/v1/raw"
     get_minio().put_object(settings.minio_bucket, storage_key, io.BytesIO(data), len(data))

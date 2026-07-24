@@ -43,6 +43,8 @@ class Settings(BaseSettings):
     path_a_relocate_hamming: int = 8  # relocated 判据（边界漂移仍命中）；valid 用紧阈值 3（块未变）
     # T11 outbox relay
     outbox_max_attempts: int = 3
+    # T12 增量更新：changed_ratio 超此阈值回退全量重建（增量无收益）
+    min_changed_ratio: float = 0.5
 
 
 settings = Settings()
