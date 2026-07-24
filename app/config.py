@@ -45,6 +45,10 @@ class Settings(BaseSettings):
     outbox_max_attempts: int = 3
     # T12 增量更新：changed_ratio 超此阈值回退全量重建（增量无收益）
     min_changed_ratio: float = 0.5
+    # T14 GC：保留最近 N 个版本（含当前），purge *_version < active-N+1；回滚未实现默认 1（只保当前）
+    gc_retain_versions: int = 1
+    # T14 outbox 修剪：published_at 早于 N 天的行可删（保 pending/failed 供取证）
+    outbox_retain_days: int = 7
 
 
 settings = Settings()

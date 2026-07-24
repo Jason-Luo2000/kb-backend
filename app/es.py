@@ -52,3 +52,16 @@ def ensure_index() -> None:
             }
         },
     )
+
+
+def scan_all(es, index: str, source_fields: list[str] | None = None) -> list[tuple]:
+    """枚举索引全部 doc（match_all 等价），返回 [(id, source)]。对账发现 ES 孤儿用（T14）。
+    FakeES 走 es.scan；真 ES 走 elasticsearch.helpers.scan。"""
+    if hasattr(es, "scan"):  # FakeES
+        return es.scan(index, source_fields=source_fields)
+    from elasticsearch import helpers
+
+    kw = {"index": index, "query": {"match_all": {}}}
+    if source_fields:
+        kw["_source"] = source_fields
+    return [(h["_id"], h.get("_source") or {}) for h in helpers.scan(es, **kw)]

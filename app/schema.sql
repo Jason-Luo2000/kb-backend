@@ -112,6 +112,7 @@ CREATE TABLE IF NOT EXISTS kb_chunk (
 );
 CREATE INDEX IF NOT EXISTS idx_chunk_file ON kb_chunk(file_id, chunk_order);
 CREATE INDEX IF NOT EXISTS idx_chunk_tenant ON kb_chunk(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_chunk_file_version ON kb_chunk(file_id, chunk_version);  -- T14：GC 按版本清
 
 -- ============ 总结文档（路A 检索层）============
 CREATE TABLE IF NOT EXISTS kb_summary_doc (
@@ -129,6 +130,7 @@ CREATE TABLE IF NOT EXISTS kb_summary_doc (
   created_at TIMESTAMPTZ DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_summary_file ON kb_summary_doc(file_id, summary_type);
+CREATE INDEX IF NOT EXISTS idx_summary_file_version ON kb_summary_doc(file_id, summary_version);  -- T14：GC 按版本清
 
 CREATE TABLE IF NOT EXISTS kb_anchor (
   id UUID PRIMARY KEY,
@@ -144,6 +146,7 @@ CREATE TABLE IF NOT EXISTS kb_anchor (
   anchor_version INT NOT NULL DEFAULT 1
 );
 CREATE INDEX IF NOT EXISTS idx_anchor_summary ON kb_anchor(summary_doc_id);
+CREATE INDEX IF NOT EXISTS idx_anchor_file_version ON kb_anchor(file_id, anchor_version);  -- T14：GC 按版本清（无 available 列，靠版本谓词）
 
 -- ============ 检索审计与引用溯源 ============
 CREATE TABLE IF NOT EXISTS kb_query_log (
@@ -176,9 +179,11 @@ CREATE TABLE IF NOT EXISTS kb_audit_log (            -- append-only（哈希链/
   request_id VARCHAR(64),
   ip INET,
   user_agent TEXT,
+  detail JSONB,                                       -- T14：GC/对账的结构化明细（计数/dry_run/阈值），ASCII 值无 SQL_ASCII 问题
   created_at TIMESTAMPTZ DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_audit_time ON kb_audit_log(created_at DESC);
+ALTER TABLE kb_audit_log ADD COLUMN IF NOT EXISTS detail JSONB;  -- T14：已存在的库升级（CREATE IF NOT EXISTS 不会补列）
 
 -- ============ 版本与一致性（T11）============
 CREATE TABLE IF NOT EXISTS kb_version (                -- 评审#25/#6：四元组绑定（一次摄取 doc/chunk/summary/anchor 同进同退）
@@ -195,7 +200,7 @@ CREATE INDEX IF NOT EXISTS idx_version_file ON kb_version(file_id, doc_version D
 CREATE TABLE IF NOT EXISTS kb_outbox (                 -- 评审#11：transactional outbox（PG 权威、ES 派生）
   id BIGSERIAL PRIMARY KEY,
   aggregate_id UUID NOT NULL,                          -- file_id
-  event_type VARCHAR(24) NOT NULL,                     -- index | set_available
+  event_type VARCHAR(24) NOT NULL,                     -- index | set_available | delete（T14）
   payload TEXT NOT NULL,                               -- JSON 文本（TEXT 兼容 SQL_ASCII 服务端；relay 端 json.loads）
   status VARCHAR(16) DEFAULT 'pending',                -- pending | published | failed
   attempts INT DEFAULT 0,

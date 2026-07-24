@@ -7,7 +7,7 @@ from slowapi.errors import RateLimitExceeded
 
 from app import bootstrap
 from app.middleware.auth import limiter
-from app.routers import admin, docs, kbs, search
+from app.routers import admin, admin_ops, docs, kbs, search
 
 
 @asynccontextmanager
@@ -34,3 +34,4 @@ app.include_router(kbs.router)
 app.include_router(docs.router)
 app.include_router(search.router)
 app.include_router(admin.router)
+app.include_router(admin_ops.router)
