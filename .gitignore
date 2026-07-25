@@ -10,3 +10,4 @@ dist/
 build/
 data/
 .data/
+node_modules/

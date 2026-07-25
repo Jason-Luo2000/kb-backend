@@ -161,6 +161,24 @@ MVP 只支持 PDF（pdfplumber 按页）+ MD/TXT（按 `#` 分节），`.docx/.p
 
 ---
 
+## SDK 1.0（T17）
+
+T8 的 Python kb-sdk（v0.1.0，裸 `raise_for_status`、无重试、无错误分类）+ pi-ext 内联 `kb()` 升级到 **1.0**：幂等重试（review #15）+ 分级超时 + 结构化错误 + 补全方法。
+
+**Python `kb-sdk` 1.0**（[sdk/kb_sdk/](sdk/kb_sdk/)，`pip install -e sdk/`）：
+- **幂等重试**（[client.py](sdk/kb_sdk/client.py)）：仅幂等动词（GET/search/read_anchor/cite/dry_run admin）指数退避+jitter（max 3），触发面 5xx/429/网络超时；`upload/grant/create_kb/admin-apply` 默认**不自动重试**（#15）。
+- **分级超时**：读 8s / admin 30s / upload 120s（替原 120s 一刀切）。
+- **结构化错误**（[errors.py](sdk/kb_sdk/errors.py)）：`KBError` 子类（Unauthorized/Forbidden/NotFound/Validation/AnchorStale/QuotaExceeded/RateLimited/ServerError），映射 HTTP 状态 + FastAPI `detail`。
+- **补全方法**：get_doc / grant / revoke / gc / reconcile / prune_outbox；upload 带 `Idempotency-Key`（前向兼容，服务端按 content_hash 去重）。发 `X-KB-API-Version` 头。
+
+**TS `kb_client` 1.0**（[pi-ext/kb_client.ts](pi-ext/kb_client.ts)）：可复用 `makeKbClient()`（fetch + 同款重试/分级超时/错误映射 + FormData 上传）；pi-ext 工具（[index.ts](pi-ext/index.ts)）改用之。`tsc --noEmit` 类型检查（`cd pi-ext && npm i && npm run typecheck`）。**grant/upload/admin 仍不作为 LLM 工具**（防 prompt-injection 提权）。
+
+**验证**：`pytest tests/test_sdk_retry.py -q`（MockTransport 单测，钉死重试/错误策略）；`scripts/sdk_test.py`（live e2e：全客户端含 admin）。
+
+> 范围边界：**仅客户端映射**——服务端 envelope `{ok,data,error,apiVersion}` 回声 defer（SDK 已发版本头、客户端映射错误）；Idempotency-Key 服务端暂不读（dedup 靠 content_hash）；响应保持 dict（pydantic typed-model defer）；TS 只类型检查 kb_client.ts（index.ts 依赖 pi 宿主类型，留运行期）。
+
+---
+
 ## 已实现 / 刻意简化（与方案的差异）
 
 **T9 已补（多租户 + ACL）**：tenant 隔离（应用层 + ES + post-verify 三层）、`kb_grant`、AuthzEngine、`/v1/acl`、`read_anchor` 越权修复、审计落 tenant/user。PG RLS 第四层缓做（见上）。
@@ -169,5 +187,5 @@ MVP 只支持 PDF（pdfplumber 按页）+ MD/TXT（按 `#` 分节），`.docx/.p
 - 解析用 pdfplumber（页码定位），后期换 DeepDoc（bbox）
 - embedding 用智谱 embedding-3，后期换 BGE-M3（改适配器）
 - 路 A 简版：锚点用 chunk_id（MVP 文档不变可接受），simhash 稳定锚 / 重定位 → **T10 已完成**
-- 摄取同步处理 → T11 已完成（outbox + 原子 flip + 版本栅栏）；增量更新 / 幂等上传 → T12 已完成；版本 GC + ES↔PG 对账 → **T14 已完成**；多格式 + 版式感知分块 → **T13 已完成**；审计哈希链 → T15；监控 → T16；SDK 1.0 → T17；JWT/SSO → T25
+- 摄取同步处理 → T11 已完成（outbox + 原子 flip + 版本栅栏）；增量更新 / 幂等上传 → T12 已完成；版本 GC + ES↔PG 对账 → **T14 已完成**；多格式 + 版式感知分块 → **T13 已完成**；SDK 1.0（Python+TS 幂等重试）→ **T17 已完成**；审计哈希链 → T15；监控 → T16；JWT/SSO → T25
 - rerank 可选（MVP 用 RRF 基线排序）

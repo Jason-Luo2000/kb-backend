@@ -2,35 +2,24 @@
  * pi 扩展：把 kb-backend 包装成工具 + 注入「知识库助手」人设 + /kb 命令。
  * 安装：ln -s ~/Developer/kb-backend/pi-ext ~/.pi/agent/extensions/kb
  * 环境变量：KB_BACKEND_URL / KB_USER_TOKEN(=后端 KB_API_KEY) / KB_USER_ID
+ *
+ * T17：HTTP 调用改用可复用 kb_client（幂等重试 + 分级超时 + 结构化错误）。
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import { makeKbClient } from "./kb_client";
 
 const BASE = process.env.KB_BACKEND_URL ?? "http://localhost:8000";
 const TOKEN = process.env.KB_USER_TOKEN ?? process.env.KB_SERVICE_TOKEN ?? "";
 const ASUSER = process.env.KB_USER_ID ?? "";
 
-async function kb<T>(path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
-	const r = await fetch(BASE + path, {
-		method: body ? "POST" : "GET",
-		signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(15_000)]) : AbortSignal.timeout(15_000),
-		headers: {
-			Authorization: `Bearer ${TOKEN}`,
-			"X-KB-Client": "pi-ext/1.0",
-			...(ASUSER ? { "X-KB-User": ASUSER } : {}),
-			"Content-Type": "application/json",
-		},
-		body: body ? JSON.stringify(body) : undefined,
-	});
-	if (!r.ok) throw new Error(`KB ${r.status}: ${await r.text().catch(() => "")}`);
-	return r.json() as Promise<T>;
-}
+const kb = makeKbClient({ baseUrl: BASE, token: TOKEN, asUser: ASUSER });
 
 type Kb = { id: string; name: string; description?: string; docCount: number };
 let kbs: Kb[] = [];
-const refreshKbs = async (signal?: AbortSignal) => {
+const refreshKbs = async () => {
 	try {
-		kbs = await kb<Kb[]>("/v1/kbs", undefined, signal);
+		kbs = await kb.listKbs<Kb[]>();
 	} catch {
 		/* keep last */
 	}
@@ -54,8 +43,8 @@ export default function kbExtension(pi: ExtensionAPI): void {
 			mode: Type.Optional(Type.Union([Type.Literal("hybrid"), Type.Literal("summary"), Type.Literal("embedding")])),
 		}),
 		executionMode: "parallel",
-		async execute(_id, p, signal) {
-			const h = await kb("/v1/search", { query: p.query, knowledgeBaseIds: p.knowledgeBaseIds, topK: p.topK, mode: p.mode ?? "hybrid" }, signal);
+		async execute(_id, p) {
+			const h = await kb.search(p.query, p.knowledgeBaseIds, p.topK, p.mode ?? "hybrid");
 			return { content: [{ type: "text", text: JSON.stringify(h, null, 2) }] };
 		},
 	});
@@ -72,8 +61,8 @@ export default function kbExtension(pi: ExtensionAPI): void {
 			after: Type.Optional(Type.Number()),
 		}),
 		executionMode: "parallel",
-		async execute(_id, p, signal) {
-			const t = await kb("/v1/read-anchor", p, signal);
+		async execute(_id, p) {
+			const t = await kb.readAnchor(p.docId, p.anchor, p.before, p.after);
 			return { content: [{ type: "text", text: typeof t === "string" ? t : JSON.stringify(t) }] };
 		},
 	});
@@ -83,8 +72,8 @@ export default function kbExtension(pi: ExtensionAPI): void {
 		label: "列出知识库",
 		description: "列出当前可用知识库",
 		parameters: Type.Object({}),
-		async execute(_id, _p, signal) {
-			kbs = await kb<Kb[]>("/v1/kbs", undefined, signal);
+		async execute(_id, _p) {
+			kbs = await kb.listKbs<Kb[]>();
 			return { content: [{ type: "text", text: JSON.stringify(kbs, null, 2) }] };
 		},
 	});
@@ -95,13 +84,13 @@ export default function kbExtension(pi: ExtensionAPI): void {
 		description: "答案生成后回传 answer+chunkIds，后端返回带引用标注的结果",
 		promptSnippet: "答案后调 kb_cite(answer,chunkIds) 获取精确引用",
 		parameters: Type.Object({ answer: Type.String(), chunkIds: Type.Array(Type.String()) }),
-		async execute(_id, p, signal) {
-			const r = await kb("/v1/cite", p, signal);
+		async execute(_id, p) {
+			const r = await kb.cite(p.answer, p.chunkIds);
 			return { content: [{ type: "text", text: JSON.stringify(r) }] };
 		},
 	});
 
-	// 注意：kb_admin（grant/upload/purge）不作为 LLM 工具（红队：防 prompt-injection 提权），仅 admin UI。
+	// 注意：kb_admin（grant/upload/purge）不作为 LLM 工具（红队：防 prompt-injection 提权），仅 admin UI/SDK。
 	pi.registerCommand({
 		name: "kb",
 		description: "选择本会话默认知识库 / 列库",

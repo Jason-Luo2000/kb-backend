@@ -1,6 +1,7 @@
 [project]
 name = "kb-sdk"
-version = "0.1.0"
+version = "1.0.0"
+description = "kb-backend client SDK (idempotent retry + structured errors)"
 requires-python = ">=3.9"
 dependencies = ["httpx>=0.27"]
 
