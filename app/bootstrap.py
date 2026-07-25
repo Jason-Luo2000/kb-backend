@@ -70,6 +70,12 @@ def bootstrap_identities() -> None:
                    ON CONFLICT (key_hash) DO NOTHING""",
                 (apikey_id, tid, uid, key_hash),
             )
+            # T15：种 default 租户配额（缺省值见 config）
+            cur.execute(
+                """INSERT INTO kb_quota(tenant_id,max_docs,max_bytes,period)
+                   VALUES (%s,%s,%s,'monthly') ON CONFLICT (tenant_id) DO NOTHING""",
+                (tid, settings.default_quota_docs, settings.default_quota_bytes),
+            )
 
 
 def run() -> None:

@@ -5,10 +5,12 @@
 """
 from fastapi import APIRouter, Depends, HTTPException, Request
 
+from app.audit import anchor_audit, verify_audit_chain
 from app.authz import is_tenant_owner
 from app.indexing.gc import prune_outbox, purge_versions
 from app.indexing.reconcile import reconcile
 from app.middleware.auth import get_principal, verify_api_key
+from app.quota import get_limits, get_usage
 
 router = APIRouter(prefix="/v1/admin", dependencies=[Depends(verify_api_key)])
 
@@ -50,3 +52,25 @@ def prune_ep(body: dict, request: Request):
     """修剪已发布 outbox 行。{retainDays?}。"""
     p = _require_owner(request)
     return prune_outbox(retain_days=body.get("retainDays"), principal_user_id=p.user_id)
+
+
+# ---- T15 审计哈希链 + 配额查询（owner-only）----
+@router.get("/audit/verify")
+def audit_verify_ep(request: Request):
+    """重算审计哈希链，检测字段/链路篡改。"""
+    p = _require_owner(request)
+    return verify_audit_chain(tenant_id=p.tenant_id)
+
+
+@router.post("/audit/anchor")
+def audit_anchor_ep(request: Request):
+    """链快照（trust anchor seam；外部 WORM/签名发布 defer）。"""
+    p = _require_owner(request)
+    return anchor_audit(tenant_id=p.tenant_id)
+
+
+@router.get("/quota")
+def quota_ep(request: Request):
+    """当前租户配额上限 + 当月用量。"""
+    p = _require_owner(request)
+    return {"limits": get_limits(p.tenant_id), "usage": get_usage(p.tenant_id)}

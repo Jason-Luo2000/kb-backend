@@ -15,6 +15,7 @@ available_int=0 永不删、outbox published 行永不清。旧版本已被版�
 import json
 from datetime import datetime, timedelta, timezone
 
+from app.audit import append_audit
 from app.config import settings
 from app.db import get_conn
 
@@ -139,10 +140,8 @@ def purge_versions(
                     "versions": counts["versions"],
                     "dry_run": False,
                 }
-                cur.execute(
-                    "INSERT INTO kb_audit_log(tenant_id,user_id,action,detail,result) VALUES (%s,%s,'gc_purge',%s::jsonb,'ok')",
-                    (tenant_id, principal_user_id, json.dumps(detail)),
-                )
+                append_audit(conn, tenant_id=tenant_id, user_id=principal_user_id,
+                              action="gc_purge", detail=detail, result="ok")
                 agg["chunks"] += counts["chunks"]
                 agg["summaries"] += counts["summaries"]
                 agg["anchors"] += counts["anchors"]
@@ -231,8 +230,7 @@ def prune_outbox(retain_days: int | None = None, principal_user_id: str | None =
                 (cutoff,),
             )
             deleted = cur.rowcount
-            cur.execute(
-                "INSERT INTO kb_audit_log(user_id,action,detail,result) VALUES (%s,'gc_prune_outbox',%s::jsonb,'ok')",
-                (principal_user_id, json.dumps({"deleted": deleted, "retain_days": retain_days})),
-            )
+            append_audit(conn, tenant_id=None, user_id=principal_user_id,
+                          action="gc_prune_outbox",
+                          detail={"deleted": deleted, "retain_days": retain_days}, result="ok")
     return {"deleted": deleted, "retain_days": retain_days}

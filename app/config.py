@@ -54,6 +54,9 @@ class Settings(BaseSettings):
     ocr_lang: str = "chi_sim+eng"
     ocr_min_chars_per_page: int = 10  # 单页提取字符少于此视为扫描件
     parser_table_rows_per_chunk: int = 50  # T13：表格每多少行切一个 block（防巨表爆炸）
+    # T15 摄入配额缺省（kb_quota 无行时回退）；0 = 不限
+    default_quota_docs: int = 1000
+    default_quota_bytes: int = 5 * 1024 ** 3  # 5 GiB
 
 
 settings = Settings()

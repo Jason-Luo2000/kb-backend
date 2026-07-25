@@ -282,6 +282,18 @@ def ingest_file(file_id: str) -> dict:
 
     # drain flip → ES available 翻转
     relay.drain(file_id)
+
+    # T15 摄入计量（cost 计算 defer 占位；best-effort 不阻塞 ingest）
+    try:
+        tokens = sum(len(chunker._enc.encode_ordinary(c["content"])) for c in new_chunks)
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO kb_ingest_cost_log(tenant_id,file_id,chunks,tokens,model) VALUES (%s,%s,%s,%s,%s)",
+                    (tenant_id, file_id, len(new_chunks), tokens, settings.zhipu_embed_model),
+                )
+    except Exception:  # noqa: BLE001
+        pass
     return {
         "file_id": file_id,
         "version": target,

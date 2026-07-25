@@ -12,6 +12,7 @@
 import json
 
 from app.adapters import embedder
+from app.audit import append_audit
 from app.config import settings
 from app.db import get_conn
 from app.es import INDEX, get_es, scan_all
@@ -241,11 +242,8 @@ def reconcile(
                     )
                 detail = {"file_id": fid, "republished": len(republish), "set_avail_1": len(avail),
                           "set_avail_0": len(retired), "deleted": len(orph), "dry_run": False}
-                cur.execute(
-                    "INSERT INTO kb_audit_log(tenant_id,user_id,action,detail,result) "
-                    "VALUES (%s,%s,'reconcile_repair',%s::jsonb,'ok')",
-                    (tenant_id, principal_user_id, json.dumps(detail)),
-                )
+                append_audit(conn, tenant_id=tenant_id, user_id=principal_user_id,
+                              action="reconcile_repair", detail=detail, result="ok")
         relay.drain(fid)
 
     return {

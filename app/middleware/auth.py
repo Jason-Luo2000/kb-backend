@@ -11,6 +11,7 @@ from psycopg.rows import dict_row
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 
+from app.audit import append_audit
 from app.db import get_conn
 
 limiter = Limiter(key_func=get_remote_address, default_limits=["600/minute"])
@@ -66,29 +67,26 @@ def get_principal(request: Request) -> Principal:
 
 
 def audit(action: str, request: Request | None = None, principal: Principal | None = None, **fields) -> None:
-    """best-effort 审计落库（append-only，哈希链/trust anchor 中期 T15 补）。
-    principal 显式传入优先；否则从 request.state.principal 取。"""
+    """best-effort 链式审计落库（T15：经 append_audit 写 prev_hash/row_hash 哈希链）。
+    principal 显式传入优先；否则从 request.state.principal 取。字段名映射：query→query_text /
+    hits→hit_chunk_ids / ua→user_agent（调用方不变）。失败吞掉，绝不阻塞请求。"""
     if principal is None and request is not None:
         principal = getattr(request.state, "principal", None)
     try:
         with get_conn() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    """INSERT INTO kb_audit_log(tenant_id,user_id,action,kb_ids,query_text,hit_chunk_ids,
-                       result,request_id,ip,user_agent)
-                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
-                    (
-                        principal.tenant_id if principal else None,
-                        principal.user_id if principal else None,
-                        action,
-                        fields.get("kb_ids"),
-                        fields.get("query"),
-                        fields.get("hits"),
-                        fields.get("result", "ok"),
-                        fields.get("request_id"),
-                        fields.get("ip"),
-                        fields.get("ua"),
-                    ),
-                )
+            append_audit(
+                conn,
+                tenant_id=principal.tenant_id if principal else None,
+                user_id=principal.user_id if principal else None,
+                action=action,
+                kb_ids=fields.get("kb_ids"),
+                query_text=fields.get("query"),
+                hit_chunk_ids=fields.get("hits"),
+                result=fields.get("result", "ok"),
+                request_id=fields.get("request_id"),
+                ip=fields.get("ip"),
+                user_agent=fields.get("ua"),
+                detail=fields.get("detail"),
+            )
     except Exception:
         pass

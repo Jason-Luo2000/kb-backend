@@ -10,6 +10,7 @@ from psycopg.rows import dict_row
 from app.authz import can_write, resolve as resolve_authz
 from app.config import settings
 from app.db import get_conn
+from app.quota import check_quota, meter_ingest
 from app.ingest import pipeline
 from app.middleware.auth import audit, get_principal, limiter, verify_api_key
 from app.retrieval import orchestrator
@@ -60,6 +61,12 @@ def upload_doc(kb_id: str, request: Request, file: UploadFile = File(...)):
     if existed:
         audit("UPLOAD", request, kb_ids=[kb_id], result="reused", ua=request.headers.get("user-agent"))
         return {"docId": str(existed[0]), "status": existed[1], "reused": True}
+    # T15 配额预检（新摄、去重确认后、MinIO put 前；reused 不计）
+    size_bytes = len(data)
+    ok, reason, qinfo = check_quota(principal.tenant_id, size_bytes)
+    if not ok:
+        audit("UPLOAD", request, kb_ids=[kb_id], result="quota_exceeded", detail=qinfo, ua=request.headers.get("user-agent"))
+        raise HTTPException(status_code=413, detail="KB_QUOTA_EXCEEDED")
     file_id = str(uuid.uuid4())
     storage_key = f"{file_id}/v1/raw"
     get_minio().put_object(settings.minio_bucket, storage_key, io.BytesIO(data), len(data))
@@ -67,8 +74,8 @@ def upload_doc(kb_id: str, request: Request, file: UploadFile = File(...)):
         with get_conn() as conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    """INSERT INTO kb_file(id,tenant_id,storage_key,name,content_hash,mime,status,owner_user_id)
-                       VALUES (%s,%s,%s,%s,%s,%s,'parsing',%s)""",
+                    """INSERT INTO kb_file(id,tenant_id,storage_key,name,content_hash,mime,size_bytes,status,owner_user_id)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,'parsing',%s)""",
                     (
                         file_id,
                         principal.tenant_id,
@@ -76,6 +83,7 @@ def upload_doc(kb_id: str, request: Request, file: UploadFile = File(...)):
                         file.filename,
                         content_hash,
                         file.content_type,
+                        size_bytes,
                         principal.user_id,
                     ),
                 )
@@ -83,6 +91,7 @@ def upload_doc(kb_id: str, request: Request, file: UploadFile = File(...)):
                     "INSERT INTO kb_file_kb(file_id,kb_id,tenant_id) VALUES (%s,%s,%s)",
                     (file_id, kb_id, principal.tenant_id),
                 )
+                meter_ingest(conn, principal.tenant_id, size_bytes)  # T15：用量计量（同事务原子）
         stat = pipeline.ingest_file(file_id)
         audit("UPLOAD", request, kb_ids=[kb_id], result="ok", ua=request.headers.get("user-agent"))
         return {"docId": file_id, "status": "ready", "stats": stat}

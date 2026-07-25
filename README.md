@@ -179,6 +179,23 @@ T8 的 Python kb-sdk（v0.1.0，裸 `raise_for_status`、无重试、无错误�
 
 ---
 
+## 审计哈希链 + 摄入计量/配额（T15）
+
+kb_audit_log 今天 append-only 但**无防篡改**，摄入侧无任何计量/配额。T15 补：哈希链（trust anchor）+ 上传配额预检 + 摄入成本计量（review #29 + 等保2.0三级8.1.4.3 日志防篡改）。
+
+**哈希链**（[app/audit.py](app/audit.py)）：`kb_audit_log` 加 `prev_hash/row_hash`(BYTEA)。统一 `append_audit(conn,...)`（audit()/gc/reconcile 全走），per-tenant advisory lock 串行写（保 audit() 不阻塞；锁 miss → prev_hash=NULL best-effort 链重启）。**canonical 单一 helper**（insert/verify 共用，防漂移）：`row_hash=sha256(prev_hex+"|"+json(payload,sort_keys))`，排除 created_at。`verify_audit_chain()` 重算检测字段篡改（recomputed_mismatches）+ 链路篡改（prev_hash_breaks），gap 计锁 miss。`anchor_audit()` 写 `kb_audit_anchor` 快照（root_hash=链尾 row_hash，累积摘要）。
+> **红队修正**：哈希链只是相对完整性，整段重写测不出——**必须锚定外部 trust anchor**（WORM/S3 Object Lock/签名/Merkle 公开）。本期锚表 `published` bool 是 seam，外部发布 defer（本地无 S3 无法测）。
+
+**配额/计量**（[app/quota.py](app/quota.py)）：`kb_quota`(max_docs/max_bytes/monthly) + `kb_usage`(月度计数) + `kb_file.size_bytes`。`docs.py` 上传前预检（去重确认新文件后、MinIO put 前），超额 → **413 `KB_QUOTA_EXCEEDED`**（非 429，SDK 不重试；已被 SDK 映射）。新摄成功同事务 `meter_ingest`（reused 去重不计数）。`kb_ingest_cost_log` 每 ingest 记 chunks/tokens/model（cost 计算 defer）。config `default_quota_docs=1000` / `default_quota_bytes=5GiB`，bootstrap 种 default 租户配额。
+
+**端点**（[admin_ops.py](app/routers/admin_ops.py)，owner-only）：`GET /v1/admin/audit/verify`（验链）、`POST /v1/admin/audit/anchor`（锚快照）、`GET /v1/admin/quota`（上限+用量）。
+
+**验证**：`scripts/audit_test.py`（链+篡改检测+锚）、`scripts/quota_test.py`（低配额→413+计量+reused 不计数）、`tests/test_sdk_retry.py::test_quota_exceeded_maps`（413→KBQuotaExceeded 非重试）。
+
+> 范围边界：外部 trust anchor 发布（WORM/签名）defer；ingest_cost_log 的 cost($) 计算 defer（仅 tokens 计量）；kb_usage 并发突发最多 `concurrency-1` 超纳（可周期对账 kb_file 修正）；审计哈希链不替代 PG 行级权限（RLS 仍后期专项）。
+
+---
+
 ## 已实现 / 刻意简化（与方案的差异）
 
 **T9 已补（多租户 + ACL）**：tenant 隔离（应用层 + ES + post-verify 三层）、`kb_grant`、AuthzEngine、`/v1/acl`、`read_anchor` 越权修复、审计落 tenant/user。PG RLS 第四层缓做（见上）。
@@ -187,5 +204,5 @@ T8 的 Python kb-sdk（v0.1.0，裸 `raise_for_status`、无重试、无错误�
 - 解析用 pdfplumber（页码定位），后期换 DeepDoc（bbox）
 - embedding 用智谱 embedding-3，后期换 BGE-M3（改适配器）
 - 路 A 简版：锚点用 chunk_id（MVP 文档不变可接受），simhash 稳定锚 / 重定位 → **T10 已完成**
-- 摄取同步处理 → T11 已完成（outbox + 原子 flip + 版本栅栏）；增量更新 / 幂等上传 → T12 已完成；版本 GC + ES↔PG 对账 → **T14 已完成**；多格式 + 版式感知分块 → **T13 已完成**；SDK 1.0（Python+TS 幂等重试）→ **T17 已完成**；审计哈希链 → T15；监控 → T16；JWT/SSO → T25
+- 摄取同步处理 → T11 已完成（outbox + 原子 flip + 版本栅栏）；增量更新 / 幂等上传 → T12 已完成；版本 GC + ES↔PG 对账 → **T14 已完成**；多格式 + 版式感知分块 → **T13 已完成**；SDK 1.0（Python+TS 幂等重试）→ **T17 已完成**；审计哈希链 + 配额/计量 → **T15 已完成**；监控 → T16；JWT/SSO → T25
 - rerank 可选（MVP 用 RRF 基线排序）

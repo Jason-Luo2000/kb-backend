@@ -10,7 +10,15 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "sdk"))
 import httpx
 import pytest
 
-from kb_sdk import KBClient, KBError, KBForbidden, KBRateLimited, KBServerError, KBValidation
+from kb_sdk import (
+    KBClient,
+    KBError,
+    KBForbidden,
+    KBQuotaExceeded,
+    KBRateLimited,
+    KBServerError,
+    KBValidation,
+)
 
 
 def _client(handler, **kw):
@@ -152,3 +160,20 @@ def test_upload_sends_idempotency_key(tmp_path):
     assert r["docId"] == "d"
     assert seen["key"]  # Idempotency-Key 已发（前向兼容）
     assert seen["ct"].startswith("multipart/form-data")
+
+
+def test_quota_exceeded_maps(tmp_path):
+    """413 + detail=KB_QUOTA_EXCEEDED → KBQuotaExceeded，upload 非重试。"""
+    calls = {"n": 0}
+
+    def h(req):
+        calls["n"] += 1
+        return httpx.Response(413, json={"detail": "KB_QUOTA_EXCEEDED"})
+
+    fp = tmp_path / "q.md"
+    fp.write_bytes(b"x")
+    with pytest.raises(KBQuotaExceeded) as e:
+        _client(h).upload("kbid", str(fp))
+    assert e.value.code == "KB_QUOTA_EXCEEDED"
+    assert e.value.status == 413
+    assert calls["n"] == 1  # 413 不重试（非 429/5xx）

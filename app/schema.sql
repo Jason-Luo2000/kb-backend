@@ -71,6 +71,7 @@ CREATE TABLE IF NOT EXISTS kb_file (
   name VARCHAR(512),
   content_hash CHAR(64) NOT NULL,                    -- sha256
   mime VARCHAR(128),
+  size_bytes BIGINT,                                  -- T15：摄入配额（storage bytes）
   page_count INT,
   parser_type VARCHAR(32) DEFAULT 'naive',
   summary_enabled SMALLINT DEFAULT 1,
@@ -180,10 +181,15 @@ CREATE TABLE IF NOT EXISTS kb_audit_log (            -- append-only（哈希链/
   ip INET,
   user_agent TEXT,
   detail JSONB,                                       -- T14：GC/对账的结构化明细（计数/dry_run/阈值），ASCII 值无 SQL_ASCII 问题
+  prev_hash BYTEA,                                    -- T15：哈希链前一节 row_hash（NULL=链头/锁未取 best-effort 重启）
+  row_hash BYTEA,                                     -- T15：本行 canonical 字段 sha256
   created_at TIMESTAMPTZ DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_audit_time ON kb_audit_log(created_at DESC);
 ALTER TABLE kb_audit_log ADD COLUMN IF NOT EXISTS detail JSONB;  -- T14：已存在的库升级（CREATE IF NOT EXISTS 不会补列）
+ALTER TABLE kb_audit_log ADD COLUMN IF NOT EXISTS prev_hash BYTEA;  -- T15 升级
+ALTER TABLE kb_audit_log ADD COLUMN IF NOT EXISTS row_hash BYTEA;   -- T15 升级
+CREATE INDEX IF NOT EXISTS idx_audit_chain ON kb_audit_log(tenant_id, id DESC) WHERE row_hash IS NOT NULL;  -- T15：找链尾
 
 -- ============ 版本与一致性（T11）============
 CREATE TABLE IF NOT EXISTS kb_version (                -- 评审#25/#6：四元组绑定（一次摄取 doc/chunk/summary/anchor 同进同退）
@@ -209,4 +215,48 @@ CREATE TABLE IF NOT EXISTS kb_outbox (                 -- 评审#11：transactio
   published_at TIMESTAMPTZ
 );
 CREATE INDEX IF NOT EXISTS idx_outbox_pending ON kb_outbox(aggregate_id, created_at) WHERE published_at IS NULL;
+
+-- ============ 审计哈希链 trust anchor + 摄入计量/配额（T15，review #29）============
+ALTER TABLE kb_file ADD COLUMN IF NOT EXISTS size_bytes BIGINT;                       -- T15：已存库升级
+CREATE INDEX IF NOT EXISTS idx_file_tenant_created ON kb_file(tenant_id, created_at); -- T15：用量聚合回退
+
+CREATE TABLE IF NOT EXISTS kb_audit_anchor (          -- T15：链快照（trust anchor seam；外部 WORM/签名发布 defer）
+  id BIGSERIAL PRIMARY KEY,
+  tenant_id UUID,                                     -- NULL = 全局桶
+  head_id BIGINT NOT NULL,
+  tail_id BIGINT NOT NULL,                            -- 链尾（cumulative digest 已承诺全链）
+  row_count INT NOT NULL,
+  root_hash BYTEA NOT NULL,                           -- = 链尾 row_hash
+  anchored_at TIMESTAMPTZ DEFAULT now(),
+  published BOOLEAN DEFAULT false                     -- 外部发布状态（stub）
+);
+CREATE INDEX IF NOT EXISTS idx_anchor_tenant_time ON kb_audit_anchor(tenant_id, anchored_at DESC);
+
+CREATE TABLE IF NOT EXISTS kb_quota (                 -- T15：租户配额上限（0 = 不限）
+  tenant_id UUID PRIMARY KEY REFERENCES kb_tenant(id) ON DELETE CASCADE,
+  max_docs INT NOT NULL,
+  max_bytes BIGINT NOT NULL,
+  period VARCHAR(16) NOT NULL DEFAULT 'monthly'
+);
+
+CREATE TABLE IF NOT EXISTS kb_usage (                 -- T15：租户月度用量计数（预检 + 计量）
+  tenant_id UUID NOT NULL REFERENCES kb_tenant(id) ON DELETE CASCADE,
+  period VARCHAR(7) NOT NULL,                         -- 'YYYY-MM'
+  doc_count INT NOT NULL DEFAULT 0,
+  bytes BIGINT NOT NULL DEFAULT 0,
+  PRIMARY KEY (tenant_id, period)
+);
+
+CREATE TABLE IF NOT EXISTS kb_ingest_cost_log (       -- T15：摄入计量（cost 计算 defer 占位）
+  id BIGSERIAL PRIMARY KEY,
+  tenant_id UUID,
+  file_id UUID NOT NULL REFERENCES kb_file(id) ON DELETE CASCADE,
+  chunks INT NOT NULL,
+  tokens INT NOT NULL,                                -- cl100k 近似（embedding 输入成本估算）
+  model VARCHAR(64),
+  cost NUMERIC(10,4) DEFAULT 0,                       -- defer：pricing/cost 计算后续
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_costlog_tenant_time ON kb_ingest_cost_log(tenant_id, created_at DESC);
+
 
