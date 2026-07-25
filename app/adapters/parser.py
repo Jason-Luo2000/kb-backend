@@ -29,12 +29,19 @@ class Block:
     level: int | None = None  # 标题深度 1..6
 
 
-def parse_bytes(data: bytes, mime: str | None, name: str) -> list[Block]:
-    """按 mime → 扩展名 → 默认(MD/TXT) 分派。每个 handler 内部 lazy-import 自己的库。"""
+def parse_bytes(data: bytes, mime: str | None, name: str, layout_recognize: str = "plaintext") -> list[Block]:
+    """按 mime → 扩展名 → 默认(MD/TXT) 分派。每个 handler 内部 lazy-import 自己的库。
+
+    layout_recognize（C，对照 RAGFlow）：PDF 版式识别后端选择。
+    plaintext=pdfplumber（默认，本地可用）；deepdoc/mineru/paddleocr 为可插拔重后端，
+    未安装/无 GPU 时降级 plaintext + 一次 warn（real 版式/TSR 走容器后续）。
+    """
     n = (name or "").lower()
     handler = _HANDLERS.get((mime or "").lower()) or _EXT.get(_ext(n))
     if handler is None:
         handler = _parse_text
+    if handler is _parse_pdf:
+        return _parse_pdf(data, layout_recognize=layout_recognize)
     return handler(data)
 
 
@@ -43,8 +50,22 @@ def _ext(name: str) -> str:
 
 
 # ============ PDF ============
-def _parse_pdf(data: bytes) -> list[Block]:
+_LAYOUT_WARNED: set[str] = set()
+
+
+def _layout_available(name: str) -> bool:
+    """重 ML 版式后端是否可用（DeepDOC/MinerU/PaddleOCR）。本地无 GPU/容器 → False。
+    seam：后续在容器里接好后，这里 lazy import 探测真包并返回 True。"""
+    return False
+
+
+def _parse_pdf(data: bytes, layout_recognize: str = "plaintext") -> list[Block]:
     from app.adapters import ocr
+
+    if layout_recognize and layout_recognize not in ("plaintext", "auto") and not _layout_available(layout_recognize):
+        if layout_recognize not in _LAYOUT_WARNED:
+            print(f"[parser] layout_recognize={layout_recognize} 未启用（需容器/GPU），降级 plaintext")
+            _LAYOUT_WARNED.add(layout_recognize)
 
     blocks: list[Block] = []
     with pdfplumber.open(io.BytesIO(data)) as pdf:

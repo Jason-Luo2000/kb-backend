@@ -2,11 +2,13 @@
 T9：上传需 editor+ 且 kb ∈ allowed；read_anchor 与 /search 同级 ACL（红队越权修复）。"""
 import hashlib
 import io
+import json
 import time
 import uuid
 
-from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from psycopg.rows import dict_row
+from psycopg.types.json import Json
 
 from app.authz import can_write, is_kb_admin, is_tenant_owner, resolve as resolve_authz
 from app.config import settings
@@ -40,13 +42,21 @@ def _can_read_file(principal, file_id: str) -> bool:
 
 @router.post("/kbs/{kb_id}/docs")
 @limiter.limit("30/minute")
-def upload_doc(kb_id: str, request: Request, file: UploadFile = File(...)):
+def upload_doc(kb_id: str, request: Request, file: UploadFile = File(...), parseConfig: str | None = Form(None)):
     principal = get_principal(request)
     decision = resolve_authz(principal)
     if kb_id not in decision.allowed_kb_ids or not can_write(decision, kb_id):
         raise HTTPException(status_code=403, detail="KB_FORBIDDEN_KB")
     data = file.file.read()
     content_hash = hashlib.sha256(data).hexdigest()
+    # C：分块配置（JSON 字符串）。空→pipeline 回退 KB 配置→env
+    pcfg: dict = {}
+    if parseConfig:
+        try:
+            pcfg = json.loads(parseConfig) if isinstance(parseConfig, str) else dict(parseConfig)
+        except Exception:  # noqa: BLE001
+            pcfg = {}
+    method = pcfg.get("method") or "naive"
     # 幂等（#23）：同租户同 content_hash 命中 → 链 kb + 返回已存 file_id，不重摄
     with get_conn() as conn:
         with conn.cursor() as cur:
@@ -76,8 +86,9 @@ def upload_doc(kb_id: str, request: Request, file: UploadFile = File(...)):
         with get_conn() as conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    """INSERT INTO kb_file(id,tenant_id,storage_key,name,content_hash,mime,size_bytes,status,owner_user_id)
-                       VALUES (%s,%s,%s,%s,%s,%s,%s,'parsing',%s)""",
+                    """INSERT INTO kb_file(id,tenant_id,storage_key,name,content_hash,mime,size_bytes,status,owner_user_id,
+                       parser_type,parser_config)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,'parsing',%s,%s,%s)""",
                     (
                         file_id,
                         principal.tenant_id,
@@ -87,6 +98,8 @@ def upload_doc(kb_id: str, request: Request, file: UploadFile = File(...)):
                         file.content_type,
                         size_bytes,
                         principal.user_id,
+                        method,
+                        Json(pcfg) if pcfg else None,
                     ),
                 )
                 cur.execute(
@@ -165,7 +178,7 @@ def list_kb_docs(kb_id: str, request: Request):
     with get_conn() as conn:
         with conn.cursor(row_factory=dict_row) as cur:
             cur.execute(
-                """SELECT f.id, f.name, f.status, f.page_count, f.size_bytes
+                """SELECT f.id, f.name, f.status, f.page_count, f.size_bytes, f.parser_type
                    FROM kb_file_kb fk JOIN kb_file f ON f.id = fk.file_id
                    WHERE fk.kb_id = %s AND f.tenant_id = %s
                    ORDER BY f.created_at DESC""",
@@ -179,6 +192,14 @@ def list_kb_docs(kb_id: str, request: Request):
             "status": r["status"],
             "pages": r["page_count"],
             "sizeBytes": r["size_bytes"],
+            "parserType": r["parser_type"],
         }
         for r in rows
     ]
+
+
+@router.get("/parser/methods")  # 前端用：列分块方法目录
+def parser_methods(request: Request):
+    from app.ingest import chunker_factory
+
+    return chunker_factory.METHOD_INFO

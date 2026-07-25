@@ -13,7 +13,7 @@ from psycopg.types.json import Json
 from app.adapters import embedder, parser
 from app.config import settings
 from app.db import get_conn
-from app.ingest import chunker, diff, summarizer
+from app.ingest import chunker, chunker_factory, diff, summarizer
 from app.retrieval import simhash
 from app.storage import get_minio
 
@@ -64,9 +64,9 @@ def _summary_source(it, vector, file_id, tenant_id, coverage_ratio) -> dict:
     }
 
 
-def _new_chunks(file_id, target, blocks):
+def _new_chunks(file_id, target, blocks, method, cfg):
     chunks = []
-    for c in chunker.chunk_blocks(blocks):
+    for c in chunker_factory.chunk(method, blocks, cfg):
         cid = _chunk_id(file_id, target, c["chunk_order"])
         chunks.append(
             {
@@ -77,6 +77,35 @@ def _new_chunks(file_id, target, blocks):
             }
         )
     return chunks
+
+
+def _resolve_parse_cfg(file_id: str) -> tuple[str, dict]:
+    """C：生效分块配置。file.parser_config → 所在 KB.parser_config → env 默认。返 (method, cfg)。"""
+    from psycopg.rows import dict_row
+
+    method = "naive"
+    cfg: dict = {}
+    with get_conn() as conn:
+        with conn.cursor(row_factory=dict_row) as cur:
+            cur.execute("SELECT parser_type, parser_config FROM kb_file WHERE id=%s", (file_id,))
+            f = cur.fetchone()
+            if f and f.get("parser_config"):
+                cfg = dict(f["parser_config"] or {})
+                method = cfg.get("method") or f.get("parser_type") or "naive"
+            else:
+                cur.execute(
+                    """SELECT k.parser_config FROM kb_file_kb fk
+                       JOIN kb_kb k ON k.id = fk.kb_id
+                       WHERE fk.file_id=%s AND k.parser_config IS NOT NULL LIMIT 1""",
+                    (file_id,),
+                )
+                row = cur.fetchone()
+                if row and row.get("parser_config"):
+                    cfg = dict(row["parser_config"] or {})
+                    method = cfg.get("method") or "naive"
+                elif f and f.get("parser_type"):
+                    method = f["parser_type"]
+    return method, cfg
 
 
 def _build_sources(file_id, tenant_id, target, f, new_chunks):
@@ -167,8 +196,12 @@ def ingest_file(file_id: str) -> dict:
         raise FileNotFoundError(file_id)
     tenant_id = str(f["tenant_id"])
 
-    blocks = parser.parse_bytes(_read_file_bytes(f["storage_key"]), f.get("mime"), f["name"] or "")
-    new_chunks = _new_chunks(file_id, target, blocks)
+    method, pcfg = _resolve_parse_cfg(file_id)
+    blocks = parser.parse_bytes(
+        _read_file_bytes(f["storage_key"]), f.get("mime"), f["name"] or "",
+        layout_recognize=pcfg.get("layout_recognize") or "plaintext",
+    )
+    new_chunks = _new_chunks(file_id, target, blocks, method, pcfg)
     chunk_sources, summary_items, metrics = _build_sources(file_id, tenant_id, target, f, new_chunks)
 
     covered = {cid for it in summary_items for cid in it["source_chunk_ids"]}

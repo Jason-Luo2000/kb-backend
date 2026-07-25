@@ -280,4 +280,9 @@ CREATE TABLE IF NOT EXISTS kb_model_config (
 CREATE INDEX IF NOT EXISTS idx_model_tenant_kind ON kb_model_config(tenant_id, kind);
 CREATE INDEX IF NOT EXISTS idx_model_default ON kb_model_config(kind) WHERE is_default = 1 AND tenant_id IS NULL;
 
+-- ============ C：分块配置（per-file）============
+-- parser_config 存生效的分块配置 {method,chunk_token_num,overlap,delimiter,layout_recognize}。
+-- 解析顺序：file.parser_config → 所在 KB 的 kb_kb.parser_config → env 默认。
+ALTER TABLE kb_file ADD COLUMN IF NOT EXISTS parser_config JSONB;
+
 

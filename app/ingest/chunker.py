@@ -10,6 +10,9 @@
 输出每块：必备 content/page/section_path/chunk_order（pipeline 契约）+ 可选 position/skip_summary。
 chunk_order 为 0 基单调计数（保 uuid5 chunk_id 稳定）。content 用 "\\n".join(块文本).strip()
 → MD 标题+正文重连与旧实现逐字一致（D0.2，保 content_hash/T12 复用）。"""
+import dataclasses
+import re
+
 import tiktoken
 
 from app.adapters.parser import Block
@@ -21,6 +24,24 @@ _PROSE = {"text", "title", "caption", "equation", "header", "footer"}
 _BARRIER = {"table", "figure"}
 
 
+def _apply_delimiter(blocks: list[Block], delimiter: str | None) -> list[Block]:
+    """按分隔符字符集把 prose 块文本切成子块（保留 page/section/position/bbox）。
+    delimiter=None/空 → 原样返回（默认路径，保 D0.2 字节一致）。barrier(表/图)块不切。"""
+    if not delimiter:
+        return blocks
+    cls = "[" + re.escape(delimiter) + "]"
+    out: list[Block] = []
+    for b in blocks:
+        if b.block_type in _BARRIER or not b.text or not b.text.strip():
+            out.append(b)
+            continue
+        for piece in re.split(cls, b.text):
+            piece = piece.strip()
+            if piece:
+                out.append(dataclasses.replace(b, text=piece))
+    return out
+
+
 def _tokens(text: str) -> list[int]:
     return _enc.encode(text)
 
@@ -29,8 +50,11 @@ def chunk_blocks(
     blocks: list[Block],
     size: int = settings.chunk_token_num,
     overlap: float = settings.chunk_overlap,
+    delimiter: str | None = None,
 ) -> list[dict]:
-    """返回 [{content, page, section_path, chunk_order, position, skip_summary}]。"""
+    """返回 [{content, page, section_path, chunk_order, position, skip_summary}]。
+    delimiter 非空时先把 prose 块按分隔符字符集切成子块再合并（默认 None→不切，保字节一致）。"""
+    blocks = _apply_delimiter(blocks, delimiter)
     step = max(1, int(size * (1 - overlap)))
     overlap_tokens = max(0, int(size * overlap))
     pieces: list[dict] = []

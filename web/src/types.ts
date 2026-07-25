@@ -12,6 +12,7 @@ export interface KB {
   docCount: number;
   role: string;
   visibility: string;
+  parserConfig?: ParserConfig | null;
 }
 
 export interface Doc {
@@ -20,6 +21,21 @@ export interface Doc {
   status: string;
   pages: number | null;
   sizeBytes: number | null;
+  parserType?: string;
+}
+
+// ---- 分块配置（C）----
+export interface ParserConfig {
+  method?: string;
+  chunk_token_num?: number;
+  overlap?: number;
+  delimiter?: string;
+  layout_recognize?: string;
+}
+export interface ParserMethod {
+  name: string;
+  label: string;
+  domain: boolean;
 }
 
 export interface Citation {

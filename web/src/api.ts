@@ -7,6 +7,8 @@ import type {
   ModelConfig,
   ModelDefaults,
   ModelKind,
+  ParserConfig,
+  ParserMethod,
   ProviderType,
   QuotaInfo,
   ReadAnchorResult,
@@ -18,15 +20,20 @@ export const getMe = () => api.get<Me>("/v1/me").then((r) => r.data);
 
 // ---- 知识库 ----
 export const listKbs = () => api.get<KB[]>("/v1/kbs").then((r) => r.data);
-export const createKb = (name: string, description?: string, visibility?: string) =>
-  api.post<KB>("/v1/kbs", { name, description, visibility }).then((r) => r.data);
+export const createKb = (body: { name: string; description?: string; visibility?: string; parserConfig?: ParserConfig }) =>
+  api.post<KB>("/v1/kbs", body).then((r) => r.data);
+export const updateKb = (id: string, body: Partial<{ name: string; description: string; visibility: string; parserConfig: ParserConfig | null }>) =>
+  api.patch<{ ok: boolean }>(`/v1/kbs/${id}`, body).then((r) => r.data);
+export const getParserMethods = () =>
+  api.get<ParserMethod[]>("/v1/parser/methods").then((r) => r.data);
 
 // ---- 文档 ----
 export const listDocs = (kbId: string) =>
   api.get<Doc[]>(`/v1/kbs/${kbId}/docs`).then((r) => r.data);
-export const uploadDoc = (kbId: string, file: File) => {
+export const uploadDoc = (kbId: string, file: File, parseConfig?: ParserConfig) => {
   const form = new FormData();
   form.append("file", file);
+  if (parseConfig) form.append("parseConfig", JSON.stringify(parseConfig));
   return api
     .post(`/v1/kbs/${kbId}/docs`, form, { headers: { "Content-Type": "multipart/form-data" } })
     .then((r) => r.data);
