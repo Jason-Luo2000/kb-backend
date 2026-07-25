@@ -1,67 +1,71 @@
-# kb-backend · 企业级知识库后端（MVP 端到端最小闭环）
+# kb-backend · 企业级知识库后端
 
-「总结文档导航 + 向量召回」双路并行的知识库后端，方案见 `~/Developer/pi/KB-AGENT-PLAN.md`。
-本文档是 **前期 MVP + 中期 T9**：双路召回（路 A 简版 + 路 B）、RRF 融合、引用溯源、pi 扩展接入；T9 已叠加**多租户 + 用户↔KB 授权 + ACL**（单租户→多租户，零跨租户泄露）。
+「总结文档导航 + 向量召回」双路并行检索的知识库后端，带引用溯源、多租户 ACL、版本一致性、审计哈希链、摄入配额与 Prometheus 监控。完整设计见 `~/Developer/pi/KB-AGENT-PLAN.md`。
 
-## 架构（MVP）
+> **状态**：前期 MVP（T1–T8）+ 中期（T9–T17）**全部完成**。长期项（GDPR `/purge`、JWT/SSO、PG RLS、异步 saga、DeepDOC/OCR、Grafana 大盘）**待定**——用户目前不需要，详见 [项目状态](#项目状态)。
+
+## 它做什么
+
+- **双路召回**：路 A（总结文档导航 → 锚点回原文精读）+ 路 B（BM25 + KNN 向量），RRF 融合，每条命中带可溯源引用。
+- **多租户 + ACL**：API-key → `(tenant,user)`，RBAC + kb_grant + clearance，三层纵深隔离（应用层 / ES 预过滤 / post-verify），跨租户零泄露。
+- **多格式**：PDF / DOCX / PPTX / XLSX / HTML / MD，版式感知分块（标题边界、表格独立、position 沉淀）。
+- **版本一致性**：transactional outbox + 原子 flip + 版本栅栏，PG 权威 / ES 派生；增量更新 + 幂等上传；GC 回收旧版本 + ES↔PG 对账自愈。
+- **合规与可观测**：审计哈希链（防篡改 + 验证 + trust-anchor 锚）、摄入配额（docs/bytes）、Prometheus `/metrics` + upload→indexed SLO + `/readyz`。
+- **SDK 1.0**：Python `kb-sdk` + TypeScript `kb_client`（幂等重试 + 结构化错误）。
+
+## 架构
 
 ```
-pi 扩展(5工具+人设) ──HTTP──► FastAPI 单体(kb-backend)
-                                   │
-        ┌──────────────┬───────────┼───────────┬──────────┐
-        ▼              ▼           ▼           ▼          ▼
-   PostgreSQL       ES 8.x      MinIO       Redis     智谱 API
-   (元数据/版本)   (BM25+KNN)  (原文/总结)  (缓存)   (glm-5.2+embedding)
+客户端 / pi 扩展 / SDK ──HTTP──► FastAPI 单体(kb-backend)
+                                     │
+        ┌──────────┬─────────────────┼────────────┬──────────┐
+        ▼          ▼                 ▼            ▼          ▼
+   PostgreSQL   ES 8.x           MinIO        Redis*     智谱 API
+   元数据/版本  BM25+KNN/版本    原文/对象    (预留)    glm-5.2 + embedding-3
+        │
+        └─ audit 哈希链 / 配额用量 / 查询日志 / 摄入计量
 ```
+\* Redis 已声明依赖、当前未启用（异步 saga 留后期）。模型层为适配器，默认智谱 API（免 GPU），余额不足自动退哈希伪向量（仅验证流程，生产换 BGE-M3）。
 
-模型层为适配器：MVP 用智谱 API（免 GPU），后期可切 BGE-M3 / bge-reranker / DeepDoc。
+深入见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
 
-## 前置（一次性）
+## 快速开始
 
-Elasticsearch 需要宿主机内核参数（macOS Docker Desktop 一般已满足，Linux 需手动）：
+### A. Docker（生产形态）
+
 ```bash
-# Linux only:
-sudo sysctl -w vm.max_map_count=262144
+cp .env.example .env            # 填 ZHIPU_API_KEY
+docker compose up --build       # postgres / es / minio / redis / kb-backend
+# 容器启动自动建 PG 表 + ES mapping + MinIO bucket + default 租户/owner/api_key
+curl http://localhost:8000/healthz   # → {"ok":true}
 ```
 
-## 启动
+> Linux 起 ES 前需 `sudo sysctl -w vm.max_map_count=262144`（macOS Docker Desktop 一般已满足）。
 
-```bash
-cd ~/Developer/kb-backend
-cp .env.example .env        # 填入 ZHIPU_API_KEY
-docker compose up --build   # 起 postgres/es/minio/redis/kb-backend
-# kb-backend 容器启动时自动建 PG 表 + ES mapping + MinIO bucket
-```
+### B. 本机内存模式（无 Docker / 无 GPU）
 
-健康检查：`curl http://localhost:8000/healthz`
-
-## 本机验证模式（无 Docker / 内存存储）
-
-机器没有 Docker/brew/Java 时，可用「内存模式」跑通端到端（检索用内存暴力 cosine + token 重叠，生产换真 ES）。已在此模式验证：双路召回 A=4 B=5、RRF 融合、glm 总结、引用全链路通。
-
-**前置**：本机 PostgreSQL（`psql postgres` 能连）+ Anaconda Python 3.12（系统自带 3.9 不支持 `X | None` 语法）。
+本机 PostgreSQL + Anaconda Python 3.12 即可跑通（检索用内存暴力 cosine + token 重叠）。
 
 ```bash
 # 1. 建库（一次性）
 psql postgres -c "create database kb"
 
-# 2. venv + 依赖（用 anaconda 的 3.12，清华源加速）
+# 2. venv + 依赖
 cd ~/Developer/kb-backend
 /opt/anaconda3/bin/python3.12 -m venv .venv
-.venv/bin/pip install -i https://pypi.tuna.tsinghua.edu.cn/simple -e .
+.venv/bin/pip install -e .                  # 阿里源：-i https://mirrors.aliyun.com/pypi/simple/
 
 # 3. 配 .env（关键项）
 cp .env.example .env
-#   至少设：
-#     STORE_MODE=memory
-#     DATABASE_URL=postgresql+psycopg:///kb          # 本机 PG socket 连接
-#     ZHIPU_API_KEY=<你的智谱 key>
-#     KB_BACKEND_URL=http://localhost:8001           # 8000 被占就用 8001
-#     PATH_A_THETA=-1.0        # 验证用（哈希伪向量）；生产真 embedding 删此行用默认 0.2
-#     MIN_TOKENS_TO_SUMMARIZE=200
-#     CHUNK_TOKEN_NUM=256
+#   STORE_MODE=memory
+#   DATABASE_URL=postgresql+psycopg:///kb   # 本机 PG socket
+#   ZHIPU_API_KEY=<你的智谱 key>
+#   KB_BACKEND_URL=http://localhost:8001     # 8000 被占就用 8001
+#   PATH_A_THETA=-1.0                        # 哈希伪向量时设；真 embedding 删此行
+#   MIN_TOKENS_TO_SUMMARIZE=200
+#   CHUNK_TOKEN_NUM=256
 
-# 4. 建表 + 起服务（pdfplumber import 慢，启动约 25s 才监听）
+# 4. 建表 + 起服务
 .venv/bin/python -m app.bootstrap
 .venv/bin/uvicorn app.main:app --port 8001
 
@@ -71,154 +75,77 @@ KB_BACKEND_URL=http://localhost:8001 KB_API_KEY=kb_dev_api_key \
 ```
 
 **注意**：
-- 智谱 embedding 需单独计费（glm-5.2 LLM 有额度，embedding 余额不足返回 429 / code 1113）。余额不足时 embedder 自动退回**哈希伪向量**（无语义，仅验证流程）；路 A 软门控此时须设 `PATH_A_THETA=-1` 才能召回。生产请充值或换本地 BGE-M3。
-- 内存模式重启服务会清空索引（PG 元数据持久）；生产用 `docker compose` 起真 ES/MinIO。
-- `app/es_memory.py` / `app/storage_memory.py` 是验证用替代实现，通过 `STORE_MODE` 开关，生产（`STORE_MODE=es`）走真 ES/MinIO，业务代码不变。
+- 智谱 embedding 单独计费，余额不足（429）自动退**哈希伪向量**（无语义，仅验证流程），此时路 A 软门控须设 `PATH_A_THETA=-1`。生产请充值或换本地 BGE-M3。
+- 内存模式重启清空索引（PG 元数据持久）；生产用 Docker 起真 ES/MinIO。`STORE_MODE=es`（默认）走真 ES/MinIO，业务代码不变。
 
----
-
-## 端到端 demo
+## 客户端
 
 ```bash
-pip install -e sdk/                 # 装 kb-sdk（或直接用 scripts/）
-python scripts/e2e_demo.py          # 上传样例 → 摄取 → 双路检索 → 带引用答案
-
-# 跨租户红队（T9 验收 A5，需服务在跑）：双租户互不可见 / read_anchor 不越权 / grant 可见性
-KB_BACKEND_URL=http://localhost:8001 .venv/bin/python scripts/cross_tenant_test.py
+pip install -e sdk/                     # Python kb-sdk 1.0
+```
+```python
+from kb_sdk import KBClient
+c = KBClient("http://localhost:8001", "kb_dev_api_key")
+c.upload(kb_id, "doc.pdf")
+hits = c.search("查询", knowledge_base_ids=[kb_id])
 ```
 
-## pi 接入
+TypeScript：`pi-ext/kb_client.ts` 的 `makeKbClient()`（fetch + 重试 + 结构化错误）。详见 [docs/API.md](docs/API.md)。
+
+## pi 扩展接入
 
 ```bash
-# 软链或复制扩展到 pi 的发现目录
 ln -s ~/Developer/kb-backend/pi-ext ~/.pi/agent/extensions/kb
-# 在任意终端：KB_BACKEND_URL=http://localhost:8000 KB_USER_TOKEN=$KB_API_KEY pi
+KB_BACKEND_URL=http://localhost:8000 KB_USER_TOKEN=$KB_API_KEY pi
 ```
+扩展暴露 4 个 LLM 工具（`kb_search` / `kb_read_anchor` / `kb_list` / `kb_cite`）+ `/kb` 命令 + 知识库助手人设。grant/upload/admin **不作为 LLM 工具**（防 prompt-injection 提权）。
 
 ## 目录
 
 ```
-app/         后端：main / config / db / es / storage / adapters / ingest / retrieval / routers / middleware
-pi-ext/      pi 扩展（TypeScript）
-sdk/kb_sdk/  Python SDK
-scripts/     e2e 验证与工具
-tests/       测试
+app/         后端：main/config/db/es/storage/adapters/ingest/retrieval/routers/middleware/audit/quota/metrics/indexing
+sdk/kb_sdk/  Python SDK 1.0
+pi-ext/      pi 扩展（TS）+ kb_client.ts
+scripts/     e2e / 红队 / 各任务验收脚本（独立进程、需干净库）
+tests/       pytest 单测（parser/chunker/sdk_retry/metrics）
+docs/        ARCHITECTURE / API / OPERATIONS
 ```
 
-## 多租户与权限（T9）
+## 文档
 
-中期第一阶段已叠加多租户 + ACL，**跨租户零泄露**（验收 A5）。三层纵深：
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — 双路召回、版本一致性、多租户 ACL、审计哈希链、配额、监控
+- [docs/API.md](docs/API.md) — HTTP 端点参考（鉴权 / 错误码 / 示例）
+- [docs/OPERATIONS.md](docs/OPERATIONS.md) — 部署、GC/对账/配额/审计/监控、脚本、配置参考、排障
 
-1. **应用层**：所有 file_id 解析收敛到 `tenant_id ∩ AuthzDecision.allowed_kb_ids`（[orchestrator._allowed_file_ids](app/retrieval/orchestrator.py)）。`/v1/read-anchor` 与 `/v1/search` 同级 ACL——任意 docId 不再能读未授权原文窗口（修复 MVP 的越权点）。
-2. **ES 预过滤**：双路 filter 强制 `tenant_id_kwd` + `sensitivity<=clearance`（[path_a](app/retrieval/path_a.py)/[path_b](app/retrieval/path_b.py)）；摄取时 stamp tenant。
-3. **post-verify**：RRF 融合后逐 chunk 回查租户，丢弃越权命中 + `SEC_VIOLATION` 审计（[guard.postverify](app/retrieval/guard.py)）。
+## 项目状态
 
-**认证**：API-key → `(tenant_id,user_id)`（sha256 查 `kb_api_key`）。JWT/SSO 是后期 T25。bootstrap 幂等种 default 租户/owner/api_key → 现有 `KB_API_KEY`+`KB_USER_ID` 客户端无需改动即落入 default 租户。
+**中期 T1–T17 全部完成**（均合 main）：
 
-**授权模型**（[app/authz.py](app/authz.py)，Python，接口 Cedar 形状，后期可 slot in cedar-py）：RBAC（租户角色 owner/admin/editor/viewer）+ `kb_grant`（用户↔KB 显式授权，含过期/撤销）+ `clearance>=sensitivity`（ABAC）。租户 owner/admin 见全部 kb；editor 见 team/tenant 可见 kb；viewer 仅显式 grant。
+| 阶段 | 内容 |
+|---|---|
+| 前期 T1–T8 | MVP：双路召回 + RRF + 引用 + pi 接入 + Python SDK 雏形 |
+| T9 | 多租户 + ACL（三层纵深，A5 跨租户零泄露） |
+| T10 | 路 A 完整（simhash 稳定锚 / 重定位 / 软门控 / 超时软截止，A6） |
+| T11 | 版本一致性（outbox + 原子 flip + 版本栅栏） |
+| T12 | 增量更新 + 幂等上传（content_hash 去重，A7 复用 >60%） |
+| T13 | 多格式解析 + 版式感知分块（OCR stub 留 flag） |
+| T14 | 版本 GC + ES↔PG 对账（report+repair） |
+| T15 | 审计哈希链 + 摄入计量/配额（413 KB_QUOTA_EXCEEDED） |
+| T16 | 监控（Prometheus /metrics + upload→indexed SLO + /readyz，A8） |
+| T17 | SDK 1.0（Python + TS，幂等重试 + 结构化错误） |
 
-**端点**：`GET /v1/kbs`（带 role）、`POST /v1/kbs`（stamp tenant+owner）、`PUT/DELETE /v1/acl`（grant/revoke，仅 kb admin+，**高危非 LLM 工具**）。
+**长期项（待定，用户目前不需要）**：T20 GDPR `/purge`+deleted_at · T25 JWT/SSO · PG RLS · Redis Streams 异步 saga · DeepDOC/OCR/表格 TSR · 外部 trust anchor 发布 · SLO 告警 + Grafana 大盘。需要对应场景（接真人/过审/规模化/扫描件…）时再开。
 
-> PG 行级安全（RLS）作为第四层纵深**缓做**——仅在非 superuser 应用角色下生效，需拆角色 + 解认证鸡生蛋，列为后期生产基础设施专项。A5 已由上述三层满足。
+## 测试
 
----
+```bash
+# 纯单测（无需 DB/ES/MinIO）
+.venv/bin/pytest tests/ -q
 
-## 版本 GC + ES↔PG 对账（T14）
+# e2e（需服务在跑）
+KB_BACKEND_URL=http://localhost:8001 KB_API_KEY=kb_dev_api_key .venv/bin/python scripts/e2e_demo.py
+KB_BACKEND_URL=http://localhost:8001 .venv/bin/python scripts/cross_tenant_test.py   # 跨租户红队（A5）
 
-T11（版本化原子发布）+ T12（增量更新）每次摄取都留下一整代旧版本（旧 chunk 翻 `available=0` 行仍在、旧 summary/anchor 仅版本谓词隐藏、`kb_version` 每次+1、ES 旧 doc 翻 `available_int=0` 永不删、outbox published 行永不清）。旧版本已被版本栅栏 + flip 隐藏，**不影响可见性/正确性**——T14 负责**空间回收 + 漂移修复**（PG 权威、ES 派生）。
-
-**GC / purge**（[app/indexing/gc.py](app/indexing/gc.py)）：按保留窗 `purge *_version < active - gc_retain_versions + 1`（默认 `gc_retain_versions=1`，回滚未实现只保当前）。整版本删除 anchor→summary_doc→chunk→version，ES 删除经 outbox `delete` 事件（与 PG 同事务写、commit 后 drain，旧 doc 已不可见故零检索影响）。审计内联同事务（不调 `audit()`）。并发双保险：advisory lock + `pending_count>0` 跳过；前置守卫断言四 active 指针相等。另含 `prune_outbox`（删 N 天前 published 行，保 pending/failed）。
-
-**对账 reconcile**（[app/indexing/reconcile.py](app/indexing/reconcile.py)）：扫描分类 5 类漂移——`missing`（PG active 行、ES 无 → 原版本 re-embed 重发 `index`，**不调 ingest 防版本膨胀**）、`version_drift`（ES 版本≠active → 重发）、`avail_drift`（PG 可见、ES `available_int=0` → `set_available=1`）、`retired_leak`（ES 可见但属退役版本 → `set_available=0` 保到 GC）、`orphan`（PG 全无 → `delete`）。幂等。
-
-**端点**（[app/routers/admin_ops.py](app/routers/admin_ops.py)，**仅租户 owner、高危非 LLM 工具**，`dryRun` 默认开）：
-- `POST /v1/admin/gc` `{fileId?, dryRun}` — 旧版本 GC（`fileId` 省略=租户全量）
-- `POST /v1/admin/reconcile` `{fileId?, dryRun, repair}` — ES↔PG 对账
-- `POST /v1/admin/outbox/prune` `{retainDays?}` — outbox 修剪
-
-**验证**：`scripts/gc_test.py`、`scripts/reconcile_test.py`（直接调模块、需干净库）。
-
-> 范围边界：GDPR `/purge` + `deleted_at` 两阶段软删（被遗忘权）是 **T20/#31**，不在本期；MinIO 当前只存单 `{file_id}/v1/raw`（无按版本对象），按版本对象回收 N/A。
-
----
-
-## 多格式解析 + 版式感知分块（T13）
-
-MVP 只支持 PDF（pdfplumber 按页）+ MD/TXT（按 `#` 分节），`.docx/.pptx/.xlsx/.html` 全部 fall through 到 utf-8 乱码。T13 扩到常用 Office + HTML，并把 block 升级为带类型版式块、把分块改成版式感知合并。
-
-**Parser Registry**（[app/adapters/parser.py](app/adapters/parser.py)）：按 mime → 扩展名 → 默认(MD/TXT) 分派。`Block{page,text,section_path,block_type,bbox,level}`。
-- **DOCX**（python-docx）/ **PPTX**（python-pptx）/ **XLSX**（openpyxl，巨表 200k 单元上限）/ **HTML**（bs4+lxml）：标题→`title`、正文→`text`、表格→`table`（按行切块防爆炸）。
-- **PDF**（pdfplumber）：文本块带页级 bbox；`find_tables()` 尽力富化表格（非 DeepDOC TSR）；扫描页检测 → OCR hook。
-- **MD/TXT**：标题拆成 `title` 块 + 正文 `text` 块。
-
-**naive_merge 分块**（[app/ingest/chunker.py](app/ingest/chunker.py)）：`table/figure`=屏障（独立 chunk、`skip_summary`、不进总结窗）；`title`=边界（flush 后作新段种子，向前合并避免标题独占小 chunk）；其余 prose 累加到 token 上限，超限 flush + overlap carry；单块超 size 走 token 滑窗。沉淀 `position=[{page,l,t,r,b}]`（仅 PDF 有真 bbox，Office→NULL，`kb_chunk.position` JSONB 已存在、本期首次填充）。**MD 标题+正文用 `\n` 重连与旧实现逐字一致 → 未变 MD 文件 content_hash 不变 → T12 增量仍 100% 复用**。
-
-**OCR**（[app/adapters/ocr.py](app/adapters/ocr.py)）：`OCR_ENABLED` 默认关；开时 lazy import pytesseract+pdf2image，本地无 tesseract/poppler → warn+丢页。real OCR 走 Dockerfile 后续（`apt-get install tesseract-ocr tesseract-ocr-chi-sim poppler-utils`），不在 pyproject 声明。
-
-**验证**：`pytest tests/test_parser.py tests/test_chunker.py -q`（纯单测，无需 DB）；`scripts/multiformat_test.py`（逐格式 e2e，需干净库）。
-
-> 范围边界：DeepDOC 版式/表格 TSR、PaddleOCR 真 OCR、FACTORY 多分块器（book/paper/manual/qa/table）defer（本地无 brew/tesseract/poppler，OCR 无法本地测）。新依赖：`python-docx`/`python-pptx`/`openpyxl`/`beautifulsoup4`/`lxml`（纯 Python，已入 pyproject）。
-
----
-
-## SDK 1.0（T17）
-
-T8 的 Python kb-sdk（v0.1.0，裸 `raise_for_status`、无重试、无错误分类）+ pi-ext 内联 `kb()` 升级到 **1.0**：幂等重试（review #15）+ 分级超时 + 结构化错误 + 补全方法。
-
-**Python `kb-sdk` 1.0**（[sdk/kb_sdk/](sdk/kb_sdk/)，`pip install -e sdk/`）：
-- **幂等重试**（[client.py](sdk/kb_sdk/client.py)）：仅幂等动词（GET/search/read_anchor/cite/dry_run admin）指数退避+jitter（max 3），触发面 5xx/429/网络超时；`upload/grant/create_kb/admin-apply` 默认**不自动重试**（#15）。
-- **分级超时**：读 8s / admin 30s / upload 120s（替原 120s 一刀切）。
-- **结构化错误**（[errors.py](sdk/kb_sdk/errors.py)）：`KBError` 子类（Unauthorized/Forbidden/NotFound/Validation/AnchorStale/QuotaExceeded/RateLimited/ServerError），映射 HTTP 状态 + FastAPI `detail`。
-- **补全方法**：get_doc / grant / revoke / gc / reconcile / prune_outbox；upload 带 `Idempotency-Key`（前向兼容，服务端按 content_hash 去重）。发 `X-KB-API-Version` 头。
-
-**TS `kb_client` 1.0**（[pi-ext/kb_client.ts](pi-ext/kb_client.ts)）：可复用 `makeKbClient()`（fetch + 同款重试/分级超时/错误映射 + FormData 上传）；pi-ext 工具（[index.ts](pi-ext/index.ts)）改用之。`tsc --noEmit` 类型检查（`cd pi-ext && npm i && npm run typecheck`）。**grant/upload/admin 仍不作为 LLM 工具**（防 prompt-injection 提权）。
-
-**验证**：`pytest tests/test_sdk_retry.py -q`（MockTransport 单测，钉死重试/错误策略）；`scripts/sdk_test.py`（live e2e：全客户端含 admin）。
-
-> 范围边界：**仅客户端映射**——服务端 envelope `{ok,data,error,apiVersion}` 回声 defer（SDK 已发版本头、客户端映射错误）；Idempotency-Key 服务端暂不读（dedup 靠 content_hash）；响应保持 dict（pydantic typed-model defer）；TS 只类型检查 kb_client.ts（index.ts 依赖 pi 宿主类型，留运行期）。
-
----
-
-## 审计哈希链 + 摄入计量/配额（T15）
-
-kb_audit_log 今天 append-only 但**无防篡改**，摄入侧无任何计量/配额。T15 补：哈希链（trust anchor）+ 上传配额预检 + 摄入成本计量（review #29 + 等保2.0三级8.1.4.3 日志防篡改）。
-
-**哈希链**（[app/audit.py](app/audit.py)）：`kb_audit_log` 加 `prev_hash/row_hash`(BYTEA)。统一 `append_audit(conn,...)`（audit()/gc/reconcile 全走），per-tenant advisory lock 串行写（保 audit() 不阻塞；锁 miss → prev_hash=NULL best-effort 链重启）。**canonical 单一 helper**（insert/verify 共用，防漂移）：`row_hash=sha256(prev_hex+"|"+json(payload,sort_keys))`，排除 created_at。`verify_audit_chain()` 重算检测字段篡改（recomputed_mismatches）+ 链路篡改（prev_hash_breaks），gap 计锁 miss。`anchor_audit()` 写 `kb_audit_anchor` 快照（root_hash=链尾 row_hash，累积摘要）。
-> **红队修正**：哈希链只是相对完整性，整段重写测不出——**必须锚定外部 trust anchor**（WORM/S3 Object Lock/签名/Merkle 公开）。本期锚表 `published` bool 是 seam，外部发布 defer（本地无 S3 无法测）。
-
-**配额/计量**（[app/quota.py](app/quota.py)）：`kb_quota`(max_docs/max_bytes/monthly) + `kb_usage`(月度计数) + `kb_file.size_bytes`。`docs.py` 上传前预检（去重确认新文件后、MinIO put 前），超额 → **413 `KB_QUOTA_EXCEEDED`**（非 429，SDK 不重试；已被 SDK 映射）。新摄成功同事务 `meter_ingest`（reused 去重不计数）。`kb_ingest_cost_log` 每 ingest 记 chunks/tokens/model（cost 计算 defer）。config `default_quota_docs=1000` / `default_quota_bytes=5GiB`，bootstrap 种 default 租户配额。
-
-**端点**（[admin_ops.py](app/routers/admin_ops.py)，owner-only）：`GET /v1/admin/audit/verify`（验链）、`POST /v1/admin/audit/anchor`（锚快照）、`GET /v1/admin/quota`（上限+用量）。
-
-**验证**：`scripts/audit_test.py`（链+篡改检测+锚）、`scripts/quota_test.py`（低配额→413+计量+reused 不计数）、`tests/test_sdk_retry.py::test_quota_exceeded_maps`（413→KBQuotaExceeded 非重试）。
-
-> 范围边界：外部 trust anchor 发布（WORM/签名）defer；ingest_cost_log 的 cost($) 计算 defer（仅 tokens 计量）；kb_usage 并发突发最多 `concurrency-1` 超纳（可周期对账 kb_file 修正）；审计哈希链不替代 PG 行级权限（RLS 仍后期专项）。
-
----
-
-## 监控（T16）
-
-之前**零监控**：无 /metrics、无请求级 RED、ingest 无延迟指标、upload→indexed SLO 无从度量。T16 补 Prometheus 指标（review #30 + A8 upload→indexed p95<5min）。
-
-- **`/metrics`**（无鉴权，内部采集约定）+ **HTTP RED 中间件**（[app/metrics.py](app/metrics.py)）：`kb_http_requests_total{method,endpoint,status}` + `kb_request_duration_seconds{method,endpoint}`。endpoint 用路由模板（`/v1/docs/{doc_id}`）避免 UUID 爆基数。
-- **upload→indexed SLO**：`kb_ingest_duration_seconds{tenant,outcome}` 直方图（包 `ingest_file`，buckets 到 600s；outcome ok/fail，失败也 observe）——同步模型下 = ingest 时长。
-- **查询侧 SLO**：`kb_path_a_completed_rate` 直方图（§D.6 <50% 告警）。
-- **业务 Gauge**（[collect_business_metrics](app/metrics.py)，best-effort 短窗 SQL）：`kb_retrieval_p95_ms`/`kb_ingest_count`/`kb_ingest_tokens`/`kb_quota_docs`/`kb_quota_bytes`/`kb_sec_violations`（按 tenant）。
-- **`/readyz`**：DB/ES/MinIO 探活（best-effort，单组件失败不阻塞整体）。
-
-**验证**：`tests/test_metrics.py`（TestClient，无需外部服务）、`scripts/metrics_test.py`（live：/metrics + /readyz + ingest/path_a 样本）。手动：`curl localhost:8001/metrics | grep kb_ingest_duration`。
-
-> 范围边界：昂贵项（audit verify / reconcile drift）走已有 admin 端点按需，后台周期采集 defer（防 /metrics 被慢查拖垮）；业务 Gauge 的 tenant 标签基数规模化时再采样；真正的 SLO 告警（Prometheus alertmanager 规则）+ Grafana 大盘属部署侧，非应用代码。
-
----
-
-## 已实现 / 刻意简化（与方案的差异）
-
-**T9 已补（多租户 + ACL）**：tenant 隔离（应用层 + ES + post-verify 三层）、`kb_grant`、AuthzEngine、`/v1/acl`、`read_anchor` 越权修复、审计落 tenant/user。PG RLS 第四层缓做（见上）。
-
-**仍简化（后续任务）**：
-- 解析用 pdfplumber（页码定位），后期换 DeepDoc（bbox）
-- embedding 用智谱 embedding-3，后期换 BGE-M3（改适配器）
-- 路 A 简版：锚点用 chunk_id（MVP 文档不变可接受），simhash 稳定锚 / 重定位 → **T10 已完成**
-- 摄取同步处理 → T11 已完成（outbox + 原子 flip + 版本栅栏）；增量更新 / 幂等上传 → T12 已完成；版本 GC + ES↔PG 对账 → **T14 已完成**；多格式 + 版式感知分块 → **T13 已完成**；SDK 1.0（Python+TS 幂等重试）→ **T17 已完成**；审计哈希链 + 配额/计量 → **T15 已完成**；监控（Prometheus + SLO + readyz）→ **T16 已完成**；JWT/SSO → T25
-- rerank 可选（MVP 用 RRF 基线排序）
+# 各任务验收脚本（独立进程、需干净库）
+.venv/bin/python scripts/{version,increment,path_a,gc,reconcile,multiformat,audit,quota,metrics,sdk}_test.py
+```
