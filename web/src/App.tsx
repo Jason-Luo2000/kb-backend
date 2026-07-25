@@ -7,6 +7,7 @@ import Chat from "./pages/Chat";
 import ACL from "./pages/ACL";
 import Ops from "./pages/Ops";
 import Monitor from "./pages/Monitor";
+import Models from "./pages/Models";
 
 export default function App() {
   return (
@@ -18,6 +19,7 @@ export default function App() {
         <Route path="kbs/:kbId/docs" element={<Docs />} />
         <Route path="chat" element={<Chat />} />
         <Route path="acl" element={<ACL />} />
+        <Route path="models" element={<Models />} />
         <Route path="ops" element={<Ops />} />
         <Route path="monitor" element={<Monitor />} />
       </Route>

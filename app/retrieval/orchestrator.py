@@ -59,11 +59,19 @@ def retrieve(
         b = tasks["b"].result() if "b" in tasks else []
     a = a_meta["hits"]
 
-    merged = fusion.rrf_merge(a, b)[:top_k]
+    merged = fusion.rrf_merge(a, b)
     # post-verify：逐 chunk 回查租户，丢弃越权命中（Phase 6 guard）
     from app.retrieval import guard
 
-    merged = guard.postverify(merged, principal, file_ids)
+    # M：可选 neural rerank（配了 rerank 模型才走；否则保持 RRF 原序 + top_k 切片，行为不变）
+    from app.adapters import rerank as rerank_mod
+
+    rr = rerank_mod.rerank(query, [h["content"] for h in merged], principal.tenant_id)
+    if rr is not None and merged:
+        merged = [merged[idx] for idx, _ in rr if idx < len(merged)]
+        merged = guard.postverify(merged, principal, file_ids)[:top_k]
+    else:
+        merged = guard.postverify(merged[:top_k], principal, file_ids)
     degraded = "none" if (a and b) else ("b_only" if b else ("a_only" if a else "both_empty"))
     pa_rate = round(a_meta["completed"] / a_meta["total"], 3) if a_meta["total"] else None
     if pa_rate is not None:  # T16：查询侧 SLO 直方图（§D.6 <50% 告警）

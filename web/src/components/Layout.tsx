@@ -9,6 +9,7 @@ import {
   DashboardOutlined,
   LogoutOutlined,
   UserOutlined,
+  RobotOutlined,
 } from "@ant-design/icons";
 import { getMe } from "../api";
 import { useAuth } from "../context/AuthContext";
@@ -38,6 +39,7 @@ export default function Layout() {
     { key: "/chat", icon: <MessageOutlined />, label: "问答" },
   ];
   if (me.is_admin) items.push({ key: "/acl", icon: <SafetyOutlined />, label: "授权" });
+  if (me.is_owner) items.push({ key: "/models", icon: <RobotOutlined />, label: "模型" });
   if (me.is_owner) {
     items.push({ key: "/ops", icon: <ControlOutlined />, label: "运维" });
     items.push({ key: "/monitor", icon: <DashboardOutlined />, label: "监控" });

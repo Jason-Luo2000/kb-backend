@@ -25,6 +25,7 @@ dependencies = [
   "anthropic>=0.28",
   "tiktoken>=0.7",
   "slowapi>=0.1.9",
+  "cryptography>=42",         # M：模型 API-key Fernet 加密
 ]
 
 [project.optional-dependencies]

@@ -13,6 +13,7 @@ from slowapi.util import get_remote_address
 
 from app.audit import append_audit
 from app.db import get_conn
+from app.models_registry import set_tenant
 
 limiter = Limiter(key_func=get_remote_address, default_limits=["600/minute"])
 
@@ -55,6 +56,7 @@ def verify_api_key(request: Request) -> Principal:
         scopes=row["scopes"] or [],
     )
     request.state.principal = principal
+    set_tenant(principal.tenant_id)  # M：透传给 llm/embedder/rerank 解析生效模型
     return principal
 
 

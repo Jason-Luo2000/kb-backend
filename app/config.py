@@ -59,6 +59,8 @@ class Settings(BaseSettings):
     default_quota_bytes: int = 5 * 1024 ** 3  # 5 GiB
     # 前端 CORS（逗号分隔；web dev :5173 + 生产源）
     cors_origins: str = "http://localhost:5173,http://localhost:3000"
+    # 模型 API-key 加密口令（Fernet 派生；dev 默认，生产须 MODEL_SECRET 覆盖）
+    model_secret: str = "kb-dev-model-secret-please-override-in-prod"
 
 
 settings = Settings()

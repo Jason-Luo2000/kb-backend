@@ -259,4 +259,25 @@ CREATE TABLE IF NOT EXISTS kb_ingest_cost_log (       -- T15：摄入计量（co
 );
 CREATE INDEX IF NOT EXISTS idx_costlog_tenant_time ON kb_ingest_cost_log(tenant_id, created_at DESC);
 
+-- ============ 模型 provider 注册表（M：多 provider 模型配置）============
+-- tenant_id NULL = 系统内置（env 种子，bootstrap 启动种）；租户行覆盖系统行。
+-- kind: llm | embedding | rerank；provider_type: openai | anthropic | zhipu | local | gemini
+-- api_key_enc: Fernet 加密（app/crypto）；读取时解密、出 API 时脱敏。
+-- 每 (tenant_id, kind) 至多一条 is_default=1（应用层维护）。
+CREATE TABLE IF NOT EXISTS kb_model_config (
+  id UUID PRIMARY KEY,
+  tenant_id UUID REFERENCES kb_tenant(id) ON DELETE CASCADE,
+  name VARCHAR(128) NOT NULL,
+  kind VARCHAR(16) NOT NULL,
+  provider_type VARCHAR(24) NOT NULL,
+  base_url VARCHAR(512),
+  api_key_enc TEXT,
+  model_name VARCHAR(128) NOT NULL,
+  dim INT,
+  is_default SMALLINT DEFAULT 0,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_model_tenant_kind ON kb_model_config(tenant_id, kind);
+CREATE INDEX IF NOT EXISTS idx_model_default ON kb_model_config(kind) WHERE is_default = 1 AND tenant_id IS NULL;
+
 

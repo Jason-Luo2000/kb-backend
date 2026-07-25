@@ -1,5 +1,17 @@
 import { api } from "./api/client";
-import type { Doc, KB, Me, QuotaInfo, ReadAnchorResult, SearchResult, AuditVerify } from "./types";
+import type {
+  AuditVerify,
+  Doc,
+  KB,
+  Me,
+  ModelConfig,
+  ModelDefaults,
+  ModelKind,
+  ProviderType,
+  QuotaInfo,
+  ReadAnchorResult,
+  SearchResult,
+} from "./types";
 
 // ---- 身份 ----
 export const getMe = () => api.get<Me>("/v1/me").then((r) => r.data);
@@ -54,6 +66,30 @@ export const auditAnchor = () =>
   api.post("/v1/admin/audit/anchor").then((r) => r.data);
 export const getQuota = () =>
   api.get<QuotaInfo>("/v1/admin/quota").then((r) => r.data);
+
+// ---- 模型配置（M，owner）----
+export interface ModelInput {
+  name: string;
+  kind: ModelKind;
+  providerType: ProviderType;
+  baseUrl?: string;
+  apiKey?: string;
+  modelName: string;
+  dim?: number | null;
+  isDefault?: boolean;
+}
+export const listModels = () =>
+  api.get<ModelConfig[]>("/v1/admin/models").then((r) => r.data);
+export const getModelDefaults = () =>
+  api.get<ModelDefaults>("/v1/admin/models/defaults").then((r) => r.data);
+export const createModel = (body: ModelInput) =>
+  api.post<{ id: string }>("/v1/admin/models", body).then((r) => r.data);
+export const updateModel = (id: string, body: Partial<ModelInput>) =>
+  api.patch<{ ok: boolean }>(`/v1/admin/models/${id}`, body).then((r) => r.data);
+export const deleteModel = (id: string) =>
+  api.delete<{ ok: boolean }>(`/v1/admin/models/${id}`).then((r) => r.data);
+export const testModel = (id: string) =>
+  api.post<{ ok: boolean; detail: string }>(`/v1/admin/models/${id}/test`).then((r) => r.data);
 
 // ---- 监控 ----
 export const readyz = () => api.get<Record<string, string>>("/readyz").then((r) => r.data);

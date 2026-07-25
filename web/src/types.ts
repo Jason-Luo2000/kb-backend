@@ -83,3 +83,32 @@ export interface AuditVerify {
   head_id: number | null;
   tail_id: number | null;
 }
+
+// ---- 模型配置（M）----
+export type ModelKind = "llm" | "embedding" | "rerank";
+export type ProviderType = "openai" | "anthropic" | "zhipu" | "local" | "gemini";
+
+export interface ModelConfig {
+  id: string;
+  name: string;
+  kind: ModelKind;
+  providerType: ProviderType;
+  baseUrl: string;
+  apiKey: string; // 脱敏（****xxxx）
+  hasKey: boolean;
+  modelName: string;
+  dim: number | null;
+  isDefault: boolean;
+  system: boolean; // 系统内置（env 种子，只读）
+}
+
+export interface ModelDefault {
+  id: string | null;
+  name: string;
+  providerType: ProviderType;
+  baseUrl: string;
+  modelName: string;
+  dim: number | null;
+}
+
+export type ModelDefaults = Partial<Record<ModelKind, ModelDefault | null>>;

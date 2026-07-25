@@ -78,11 +78,42 @@ def bootstrap_identities() -> None:
             )
 
 
+def bootstrap_models() -> None:
+    """M：把 env 智谱配置种为系统内置默认（tenant_id NULL, is_default=1）——幂等。
+    无系统行时才种，使运行时仍可被租户行/管理端点覆盖；env key 未配则跳过。"""
+    from app import crypto
+    from app.db import get_conn
+
+    if not settings.zhipu_api_key:
+        return
+    seeds = [
+        ("llm", "zhipu-glm(env)", "anthropic", settings.zhipu_llm_base_url,
+         settings.zhipu_api_key, settings.zhipu_llm_model, None),
+        ("embedding", "zhipu-embedding(env)", "openai", settings.zhipu_embed_base_url,
+         settings.zhipu_api_key, settings.zhipu_embed_model, settings.zhipu_embed_dim),
+    ]
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT 1 FROM kb_model_config WHERE tenant_id IS NULL LIMIT 1")
+            if cur.fetchone():
+                return  # 已有系统行（可能用户改过），不覆盖
+            for kind, name, ptype, base, key, model, dim in seeds:
+                mid = str(uuid.uuid5(NAMESPACE, f"model:{kind}:env"))
+                cur.execute(
+                    """INSERT INTO kb_model_config(id,tenant_id,name,kind,provider_type,base_url,
+                       api_key_enc,model_name,dim,is_default)
+                       VALUES (%s,NULL,%s,%s,%s,%s,%s,%s,%s,1)
+                       ON CONFLICT (id) DO NOTHING""",
+                    (mid, name, kind, ptype, base, crypto.encrypt(key), model, dim),
+                )
+
+
 def run() -> None:
     _run_schema()
     ensure_index()
     ensure_bucket()
     bootstrap_identities()
+    bootstrap_models()
     print(
         f"bootstrap done: PG schema + ES index + MinIO bucket + default tenant/user/api_key ready "
         f"(tenant={default_tenant_id()} user={default_user_id()})"
