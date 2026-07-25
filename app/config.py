@@ -57,6 +57,8 @@ class Settings(BaseSettings):
     # T15 摄入配额缺省（kb_quota 无行时回退）；0 = 不限
     default_quota_docs: int = 1000
     default_quota_bytes: int = 5 * 1024 ** 3  # 5 GiB
+    # 前端 CORS（逗号分隔；web dev :5173 + 生产源）
+    cors_origins: str = "http://localhost:5173,http://localhost:3000"
 
 
 settings = Settings()

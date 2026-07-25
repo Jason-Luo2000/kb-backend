@@ -77,6 +77,7 @@ SLO 告警规则 + Grafana 大盘属部署侧（待定）。
 | `OUTBOX_RETAIN_DAYS` | 7 | outbox 修剪保留期 |
 | `OCR_ENABLED` | false | 扫描件 OCR（需 tesseract+poppler） |
 | `DEFAULT_QUOTA_DOCS` / `DEFAULT_QUOTA_BYTES` | 1000 / 5GiB | 配额缺省（0=不限） |
+| `CORS_ORIGINS` | `http://localhost:5173,...` | 前端跨域白名单（逗号分隔） |
 
 完整列表见 [config.py](../app/config.py)。
 

@@ -41,8 +41,10 @@ token 经 sha256 查 `kb_api_key`（未撤销）→ `Principal(tenant_id, user_i
 
 | 方法 | 路径 | 权限 | body / 返回 |
 |---|---|---|---|
+| GET | `/v1/me` | 任意 | `{tenant_id,user_id,is_owner,is_admin}`（前端验身份/门控） |
 | GET | `/v1/kbs` | 任意 | `[{id,name,description,docCount,role,visibility}]` |
 | POST | `/v1/kbs` | 任意 | `{name,description?,visibility?}` → `{id,name}`（重名 409） |
+| GET | `/v1/kbs/{kb_id}/docs` | 任意（授权内） | `[{docId,title,status,pages,sizeBytes}]` |
 | POST | `/v1/kbs/{kb_id}/docs` | editor+ | multipart `file` → `{docId,status,stats?}`（命中去重 `reused:true`；超额 413；30/min） |
 | GET | `/v1/docs/{doc_id}` | 任意（授权内） | `{docId,title,status,pages}` |
 | POST | `/v1/read-anchor` | 读授权 | `{docId,anchor,before?=2,after?=4}` → `{docId,anchor,text,page,version}` |

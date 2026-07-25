@@ -8,7 +8,7 @@ import uuid
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from psycopg.rows import dict_row
 
-from app.authz import can_write, resolve as resolve_authz
+from app.authz import can_write, is_kb_admin, is_tenant_owner, resolve as resolve_authz
 from app.config import settings
 from app.db import get_conn
 from app.quota import check_quota, meter_ingest
@@ -140,3 +140,45 @@ def read_anchor(body: dict, request: Request):
     if not r:
         raise HTTPException(status_code=404, detail="KB_ANCHOR_STALE")
     return r
+
+
+@router.get("/me")  # 前端用：验 key + 显身份 + 门控 owner/admin 页
+def me(request: Request):
+    principal = get_principal(request)
+    decision = resolve_authz(principal)
+    is_owner = is_tenant_owner(principal)
+    is_admin = is_owner or any(is_kb_admin(decision, kid) for kid in decision.allowed_kb_ids)
+    return {
+        "tenant_id": principal.tenant_id,
+        "user_id": principal.user_id,
+        "is_owner": is_owner,
+        "is_admin": is_admin,
+    }
+
+
+@router.get("/kbs/{kb_id}/docs")  # 前端用：列库内文档
+def list_kb_docs(kb_id: str, request: Request):
+    principal = get_principal(request)
+    decision = resolve_authz(principal)
+    if kb_id not in decision.allowed_kb_ids:
+        raise HTTPException(status_code=403, detail="KB_FORBIDDEN_KB")
+    with get_conn() as conn:
+        with conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(
+                """SELECT f.id, f.name, f.status, f.page_count, f.size_bytes
+                   FROM kb_file_kb fk JOIN kb_file f ON f.id = fk.file_id
+                   WHERE fk.kb_id = %s AND f.tenant_id = %s
+                   ORDER BY f.created_at DESC""",
+                (kb_id, principal.tenant_id),
+            )
+            rows = cur.fetchall()
+    return [
+        {
+            "docId": str(r["id"]),
+            "title": r["name"],
+            "status": r["status"],
+            "pages": r["page_count"],
+            "sizeBytes": r["size_bytes"],
+        }
+        for r in rows
+    ]

@@ -92,6 +92,17 @@ hits = c.search("查询", knowledge_base_ids=[kb_id])
 
 TypeScript：`pi-ext/kb_client.ts` 的 `makeKbClient()`（fetch + 重试 + 结构化错误）。详见 [docs/API.md](docs/API.md)。
 
+## 前端控制台（web/）
+
+Vite + React + TS + Ant Design 的 Web 控制台（SPA 调 HTTP API）：登录 / 知识库 / 文档上传 / 聊天式问答（带「查看原文」引用）/ 授权（admin）/ 运维面板（owner：配额·GC·对账·审计验链·锚）/ 监控（/readyz + 指标）。非 owner/admin 自动隐藏对应页。
+
+```bash
+# 后端先起（:8001），CORS 默认放行 :5173
+cd web && npm install && npm run dev      # → http://localhost:5173，用 kb_dev_api_key 登录
+```
+
+构建：`npm run build` → `web/dist`（可由后端 StaticFiles 挂载或 nginx 托管）。详见 [web/README.md](web/README.md)。
+
 ## pi 扩展接入
 
 ```bash
@@ -106,6 +117,7 @@ KB_BACKEND_URL=http://localhost:8000 KB_USER_TOKEN=$KB_API_KEY pi
 app/         后端：main/config/db/es/storage/adapters/ingest/retrieval/routers/middleware/audit/quota/metrics/indexing
 sdk/kb_sdk/  Python SDK 1.0
 pi-ext/      pi 扩展（TS）+ kb_client.ts
+web/         前端控制台（Vite + React + AntD）
 scripts/     e2e / 红队 / 各任务验收脚本（独立进程、需干净库）
 tests/       pytest 单测（parser/chunker/sdk_retry/metrics）
 docs/        ARCHITECTURE / API / OPERATIONS
