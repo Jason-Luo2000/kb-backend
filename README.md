@@ -142,6 +142,25 @@ T11（版本化原子发布）+ T12（增量更新）每次摄取都留下一整
 
 ---
 
+## 多格式解析 + 版式感知分块（T13）
+
+MVP 只支持 PDF（pdfplumber 按页）+ MD/TXT（按 `#` 分节），`.docx/.pptx/.xlsx/.html` 全部 fall through 到 utf-8 乱码。T13 扩到常用 Office + HTML，并把 block 升级为带类型版式块、把分块改成版式感知合并。
+
+**Parser Registry**（[app/adapters/parser.py](app/adapters/parser.py)）：按 mime → 扩展名 → 默认(MD/TXT) 分派。`Block{page,text,section_path,block_type,bbox,level}`。
+- **DOCX**（python-docx）/ **PPTX**（python-pptx）/ **XLSX**（openpyxl，巨表 200k 单元上限）/ **HTML**（bs4+lxml）：标题→`title`、正文→`text`、表格→`table`（按行切块防爆炸）。
+- **PDF**（pdfplumber）：文本块带页级 bbox；`find_tables()` 尽力富化表格（非 DeepDOC TSR）；扫描页检测 → OCR hook。
+- **MD/TXT**：标题拆成 `title` 块 + 正文 `text` 块。
+
+**naive_merge 分块**（[app/ingest/chunker.py](app/ingest/chunker.py)）：`table/figure`=屏障（独立 chunk、`skip_summary`、不进总结窗）；`title`=边界（flush 后作新段种子，向前合并避免标题独占小 chunk）；其余 prose 累加到 token 上限，超限 flush + overlap carry；单块超 size 走 token 滑窗。沉淀 `position=[{page,l,t,r,b}]`（仅 PDF 有真 bbox，Office→NULL，`kb_chunk.position` JSONB 已存在、本期首次填充）。**MD 标题+正文用 `\n` 重连与旧实现逐字一致 → 未变 MD 文件 content_hash 不变 → T12 增量仍 100% 复用**。
+
+**OCR**（[app/adapters/ocr.py](app/adapters/ocr.py)）：`OCR_ENABLED` 默认关；开时 lazy import pytesseract+pdf2image，本地无 tesseract/poppler → warn+丢页。real OCR 走 Dockerfile 后续（`apt-get install tesseract-ocr tesseract-ocr-chi-sim poppler-utils`），不在 pyproject 声明。
+
+**验证**：`pytest tests/test_parser.py tests/test_chunker.py -q`（纯单测，无需 DB）；`scripts/multiformat_test.py`（逐格式 e2e，需干净库）。
+
+> 范围边界：DeepDOC 版式/表格 TSR、PaddleOCR 真 OCR、FACTORY 多分块器（book/paper/manual/qa/table）defer（本地无 brew/tesseract/poppler，OCR 无法本地测）。新依赖：`python-docx`/`python-pptx`/`openpyxl`/`beautifulsoup4`/`lxml`（纯 Python，已入 pyproject）。
+
+---
+
 ## 已实现 / 刻意简化（与方案的差异）
 
 **T9 已补（多租户 + ACL）**：tenant 隔离（应用层 + ES + post-verify 三层）、`kb_grant`、AuthzEngine、`/v1/acl`、`read_anchor` 越权修复、审计落 tenant/user。PG RLS 第四层缓做（见上）。
@@ -150,5 +169,5 @@ T11（版本化原子发布）+ T12（增量更新）每次摄取都留下一整
 - 解析用 pdfplumber（页码定位），后期换 DeepDoc（bbox）
 - embedding 用智谱 embedding-3，后期换 BGE-M3（改适配器）
 - 路 A 简版：锚点用 chunk_id（MVP 文档不变可接受），simhash 稳定锚 / 重定位 → **T10 已完成**
-- 摄取同步处理 → T11 已完成（outbox + 原子 flip + 版本栅栏）；增量更新 / 幂等上传 → T12 已完成；版本 GC + ES↔PG 对账 → **T14 已完成**；多格式/分块器 → T13；审计哈希链 → T15；监控 → T16；SDK 1.0 → T17；JWT/SSO → T25
+- 摄取同步处理 → T11 已完成（outbox + 原子 flip + 版本栅栏）；增量更新 / 幂等上传 → T12 已完成；版本 GC + ES↔PG 对账 → **T14 已完成**；多格式 + 版式感知分块 → **T13 已完成**；审计哈希链 → T15；监控 → T16；SDK 1.0 → T17；JWT/SSO → T25
 - rerank 可选（MVP 用 RRF 基线排序）

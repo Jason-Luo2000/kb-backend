@@ -8,6 +8,8 @@ import hashlib
 import json
 import uuid
 
+from psycopg.types.json import Json
+
 from app.adapters import embedder, parser
 from app.config import settings
 from app.db import get_conn
@@ -81,6 +83,7 @@ def _build_sources(file_id, tenant_id, target, f, new_chunks):
     """返回 (chunk_sources, summary_items, metrics)。target>1 且小改走增量，否则全量。
     summary_item: {summary_text, source_chunk_ids, heading_path, _vec}。"""
     enabled = f.get("summary_enabled")
+    summary_input = [c for c in new_chunks if not c.get("skip_summary")]  # T13：表/图不进总结窗
     incremental = False
     matched: dict = {}
     fresh: list = []
@@ -94,7 +97,7 @@ def _build_sources(file_id, tenant_id, target, f, new_chunks):
         # 全量
         vectors = embedder.embed_batch([c["content"] for c in new_chunks])
         chunk_sources = [_chunk_source(c, vectors[i], file_id, tenant_id, target) for i, c in enumerate(new_chunks)]
-        raw = summarizer.summarize_file(new_chunks) if enabled else []
+        raw = summarizer.summarize_file(summary_input) if enabled else []
         sum_vecs = embedder.embed_batch([it["summary_text"] for it in raw]) if raw else []
         summary_items = [{**it, "_vec": sum_vecs[i]} for i, it in enumerate(raw)]
         return chunk_sources, summary_items, {
@@ -135,7 +138,7 @@ def _build_sources(file_id, tenant_id, target, f, new_chunks):
                 )
                 reused_summaries += 1
         if fresh:
-            fresh_items = summarizer.summarize_file(fresh)
+            fresh_items = summarizer.summarize_file([c for c in fresh if not c.get("skip_summary")])
             fresh_sum_vecs = embedder.embed_batch([it["summary_text"] for it in fresh_items]) if fresh_items else []
             for i, it in enumerate(fresh_items):
                 summary_items.append({**it, "_vec": fresh_sum_vecs[i]})
@@ -169,7 +172,8 @@ def ingest_file(file_id: str) -> dict:
     chunk_sources, summary_items, metrics = _build_sources(file_id, tenant_id, target, f, new_chunks)
 
     covered = {cid for it in summary_items for cid in it["source_chunk_ids"]}
-    coverage_ratio = (len(covered) / len(new_chunks)) if new_chunks else 0.0
+    n_summary_elig = sum(1 for c in new_chunks if not c.get("skip_summary"))  # T13：表/图不计入覆盖分母
+    coverage_ratio = (len(covered) / n_summary_elig) if n_summary_elig else 0.0
     chunk_by_id = {c["chunk_id"]: c for c in new_chunks}
     chunk_ids = [c["chunk_id"] for c in new_chunks]
 
@@ -181,12 +185,13 @@ def ingest_file(file_id: str) -> dict:
             cur.executemany(
                 """INSERT INTO kb_chunk(id,file_id,tenant_id,doc_version,chunk_order,content,content_ltks,
                    section_path,page_num,position,chunk_version,content_hash,simhash,sensitivity_level,available)
-                   VALUES (%(id)s,%(fid)s,%(tid)s,%(dv)s,%(co)s,%(ct)s,%(ct)s,%(sp)s,%(pg)s,null,%(cv)s,%(ch)s,%(sh)s,0,0)""",
+                   VALUES (%(id)s,%(fid)s,%(tid)s,%(dv)s,%(co)s,%(ct)s,%(ct)s,%(sp)s,%(pg)s,%(pos)s,%(cv)s,%(ch)s,%(sh)s,0,0)""",
                 [
                     {
                         "id": c["chunk_id"], "fid": file_id, "tid": tenant_id, "dv": target, "cv": target,
                         "co": c["chunk_order"], "ct": c["content"], "sp": c["section_path"],
-                        "pg": c["page"], "ch": c["content_hash"], "sh": simhash.to_signed(c["simhash"]),
+                        "pg": c["page"], "pos": Json(c["position"]) if c.get("position") else None, "ch": c["content_hash"],
+                        "sh": simhash.to_signed(c["simhash"]),
                     }
                     for c in new_chunks
                 ],

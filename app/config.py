@@ -49,6 +49,11 @@ class Settings(BaseSettings):
     gc_retain_versions: int = 1
     # T14 outbox 修剪：published_at 早于 N 天的行可删（保 pending/failed 供取证）
     outbox_retain_days: int = 7
+    # T13 OCR（扫描件）：默认关；本地无 tesseract/poppler 时 lazy import 失败→warn+丢页（real OCR 走 Dockerfile 后续）
+    ocr_enabled: bool = False
+    ocr_lang: str = "chi_sim+eng"
+    ocr_min_chars_per_page: int = 10  # 单页提取字符少于此视为扫描件
+    parser_table_rows_per_chunk: int = 50  # T13：表格每多少行切一个 block（防巨表爆炸）
 
 
 settings = Settings()
