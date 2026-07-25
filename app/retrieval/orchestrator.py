@@ -8,6 +8,7 @@ from app.authz import resolve as resolve_authz
 from app.config import settings
 from app.db import get_conn
 from app.middleware.auth import Principal
+from app.metrics import PATH_A_RATE
 from app.retrieval import fusion, path_a, path_b
 
 
@@ -65,6 +66,8 @@ def retrieve(
     merged = guard.postverify(merged, principal, file_ids)
     degraded = "none" if (a and b) else ("b_only" if b else ("a_only" if a else "both_empty"))
     pa_rate = round(a_meta["completed"] / a_meta["total"], 3) if a_meta["total"] else None
+    if pa_rate is not None:  # T16：查询侧 SLO 直方图（§D.6 <50% 告警）
+        PATH_A_RATE.observe(pa_rate)
     latency_ms = int((time.time() - t0) * 1000)
     _log_query(principal, query, file_ids, len(a), len(b), degraded, latency_ms)
     return {

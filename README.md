@@ -196,6 +196,22 @@ kb_audit_log 今天 append-only 但**无防篡改**，摄入侧无任何计量/�
 
 ---
 
+## 监控（T16）
+
+之前**零监控**：无 /metrics、无请求级 RED、ingest 无延迟指标、upload→indexed SLO 无从度量。T16 补 Prometheus 指标（review #30 + A8 upload→indexed p95<5min）。
+
+- **`/metrics`**（无鉴权，内部采集约定）+ **HTTP RED 中间件**（[app/metrics.py](app/metrics.py)）：`kb_http_requests_total{method,endpoint,status}` + `kb_request_duration_seconds{method,endpoint}`。endpoint 用路由模板（`/v1/docs/{doc_id}`）避免 UUID 爆基数。
+- **upload→indexed SLO**：`kb_ingest_duration_seconds{tenant,outcome}` 直方图（包 `ingest_file`，buckets 到 600s；outcome ok/fail，失败也 observe）——同步模型下 = ingest 时长。
+- **查询侧 SLO**：`kb_path_a_completed_rate` 直方图（§D.6 <50% 告警）。
+- **业务 Gauge**（[collect_business_metrics](app/metrics.py)，best-effort 短窗 SQL）：`kb_retrieval_p95_ms`/`kb_ingest_count`/`kb_ingest_tokens`/`kb_quota_docs`/`kb_quota_bytes`/`kb_sec_violations`（按 tenant）。
+- **`/readyz`**：DB/ES/MinIO 探活（best-effort，单组件失败不阻塞整体）。
+
+**验证**：`tests/test_metrics.py`（TestClient，无需外部服务）、`scripts/metrics_test.py`（live：/metrics + /readyz + ingest/path_a 样本）。手动：`curl localhost:8001/metrics | grep kb_ingest_duration`。
+
+> 范围边界：昂贵项（audit verify / reconcile drift）走已有 admin 端点按需，后台周期采集 defer（防 /metrics 被慢查拖垮）；业务 Gauge 的 tenant 标签基数规模化时再采样；真正的 SLO 告警（Prometheus alertmanager 规则）+ Grafana 大盘属部署侧，非应用代码。
+
+---
+
 ## 已实现 / 刻意简化（与方案的差异）
 
 **T9 已补（多租户 + ACL）**：tenant 隔离（应用层 + ES + post-verify 三层）、`kb_grant`、AuthzEngine、`/v1/acl`、`read_anchor` 越权修复、审计落 tenant/user。PG RLS 第四层缓做（见上）。
@@ -204,5 +220,5 @@ kb_audit_log 今天 append-only 但**无防篡改**，摄入侧无任何计量/�
 - 解析用 pdfplumber（页码定位），后期换 DeepDoc（bbox）
 - embedding 用智谱 embedding-3，后期换 BGE-M3（改适配器）
 - 路 A 简版：锚点用 chunk_id（MVP 文档不变可接受），simhash 稳定锚 / 重定位 → **T10 已完成**
-- 摄取同步处理 → T11 已完成（outbox + 原子 flip + 版本栅栏）；增量更新 / 幂等上传 → T12 已完成；版本 GC + ES↔PG 对账 → **T14 已完成**；多格式 + 版式感知分块 → **T13 已完成**；SDK 1.0（Python+TS 幂等重试）→ **T17 已完成**；审计哈希链 + 配额/计量 → **T15 已完成**；监控 → T16；JWT/SSO → T25
+- 摄取同步处理 → T11 已完成（outbox + 原子 flip + 版本栅栏）；增量更新 / 幂等上传 → T12 已完成；版本 GC + ES↔PG 对账 → **T14 已完成**；多格式 + 版式感知分块 → **T13 已完成**；SDK 1.0（Python+TS 幂等重试）→ **T17 已完成**；审计哈希链 + 配额/计量 → **T15 已完成**；监控（Prometheus + SLO + readyz）→ **T16 已完成**；JWT/SSO → T25
 - rerank 可选（MVP 用 RRF 基线排序）

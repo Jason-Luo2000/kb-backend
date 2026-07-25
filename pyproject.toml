@@ -21,6 +21,7 @@ dependencies = [
   "openpyxl>=3.1",           # T13：XLSX 解析
   "beautifulsoup4>=4.12",    # T13：HTML 解析
   "lxml>=5.1",               # T13：bs4 后端 + docx 解析
+  "prometheus_client>=0.20", # T16：/metrics 监控
   "anthropic>=0.28",
   "tiktoken>=0.7",
   "slowapi>=0.1.9",

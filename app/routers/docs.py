@@ -2,6 +2,7 @@
 T9：上传需 editor+ 且 kb ∈ allowed；read_anchor 与 /search 同级 ACL（红队越权修复）。"""
 import hashlib
 import io
+import time
 import uuid
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
@@ -13,6 +14,7 @@ from app.db import get_conn
 from app.quota import check_quota, meter_ingest
 from app.ingest import pipeline
 from app.middleware.auth import audit, get_principal, limiter, verify_api_key
+from app.metrics import INGEST_DURATION
 from app.retrieval import orchestrator
 from app.storage import get_minio
 
@@ -92,12 +94,19 @@ def upload_doc(kb_id: str, request: Request, file: UploadFile = File(...)):
                     (file_id, kb_id, principal.tenant_id),
                 )
                 meter_ingest(conn, principal.tenant_id, size_bytes)  # T15：用量计量（同事务原子）
-        stat = pipeline.ingest_file(file_id)
-        audit("UPLOAD", request, kb_ids=[kb_id], result="ok", ua=request.headers.get("user-agent"))
-        return {"docId": file_id, "status": "ready", "stats": stat}
     except Exception as e:  # noqa: BLE001
         audit("UPLOAD", request, kb_ids=[kb_id], result="fail")
         raise HTTPException(status_code=500, detail=f"ingest failed: {e}") from e
+    _t0 = time.perf_counter()  # T16：upload→indexed SLO（仅 ingest_file 时长）
+    try:
+        stat = pipeline.ingest_file(file_id)
+    except Exception as e:  # noqa: BLE001
+        INGEST_DURATION.labels(principal.tenant_id, "fail").observe(time.perf_counter() - _t0)
+        audit("UPLOAD", request, kb_ids=[kb_id], result="fail")
+        raise HTTPException(status_code=500, detail=f"ingest failed: {e}") from e
+    INGEST_DURATION.labels(principal.tenant_id, "ok").observe(time.perf_counter() - _t0)
+    audit("UPLOAD", request, kb_ids=[kb_id], result="ok", ua=request.headers.get("user-agent"))
+    return {"docId": file_id, "status": "ready", "stats": stat}
 
 
 @router.get("/docs/{doc_id}")
