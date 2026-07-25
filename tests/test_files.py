@@ -101,3 +101,32 @@ def test_kb_doc_remove_reparse_rename():
 def test_file_delete_404_when_missing():
     with TestClient(app) as c:
         assert c.delete(f"/v1/files/{uuid.uuid4()}", headers=AUTH).status_code == 404
+
+
+def test_per_doc_different_methods_in_one_kb():
+    """同一 KB 内每个文档可独立设分块方法，且可改方法重解析（对齐 RAGFlow）。"""
+    with TestClient(app) as c:
+        kid = _create_kb(c, "perdoc-" + uuid.uuid4().hex[:6])  # KB 默认 naive
+        # doc A: 显式 method=one → 整篇一块
+        a = c.post(f"/v1/kbs/{kid}/docs", headers=AUTH,
+                   files={"file": ("a.md", _unique_md(), "text/markdown")},
+                   data={"parseConfig": '{"method":"one"}'}).json()
+        # doc B: 显式 method=delimiter（多句）
+        bdata = ("第一句。第二句！第三句？第四句" + uuid.uuid4().hex).encode()
+        b = c.post(f"/v1/kbs/{kid}/docs", headers=AUTH,
+                   files={"file": ("b.md", bdata, "text/markdown")},
+                   data={"parseConfig": '{"method":"delimiter","chunk_token_num":4}'}).json()
+        assert a["stats"]["chunks"] == 1
+        assert b["stats"]["chunks"] >= 2
+        docs = {d["title"]: d["parserType"] for d in c.get(f"/v1/kbs/{kid}/docs", headers=AUTH).json()}
+        assert docs["a.md"] == "one" and docs["b.md"] == "delimiter"  # 同库不同方法
+
+        # 把 A 改成 delimiter 并重解析 → 方法变更、版本 +1
+        rp = c.post(f"/v1/kbs/{kid}/docs/{a['docId']}/reparse", headers=AUTH,
+                    json={"parseConfig": {"method": "delimiter", "chunk_token_num": 4}}).json()
+        assert rp["stats"]["version"] == 2
+        docs = {d["title"]: d["parserType"] for d in c.get(f"/v1/kbs/{kid}/docs", headers=AUTH).json()}
+        assert docs["a.md"] == "delimiter"
+
+        c.delete(f"/v1/files/{a['docId']}", headers=AUTH)  # 清理
+        c.delete(f"/v1/files/{b['docId']}", headers=AUTH)

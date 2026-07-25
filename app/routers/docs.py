@@ -40,6 +40,17 @@ def _can_read_file(principal, file_id: str) -> bool:
             return cur.fetchone() is not None
 
 
+def _kb_default_parser_config(kb_id: str) -> dict:
+    """取该 KB 的 parser_config（新建文档未显式指定方法时的默认）。"""
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT parser_config FROM kb_kb WHERE id=%s", (kb_id,))
+            row = cur.fetchone()
+    if row and row[0]:
+        return dict(row[0])
+    return {}
+
+
 @router.post("/kbs/{kb_id}/docs")
 @limiter.limit("30/minute")
 def upload_doc(kb_id: str, request: Request, file: UploadFile = File(...), parseConfig: str | None = Form(None)):
@@ -49,13 +60,15 @@ def upload_doc(kb_id: str, request: Request, file: UploadFile = File(...), parse
         raise HTTPException(status_code=403, detail="KB_FORBIDDEN_KB")
     data = file.file.read()
     content_hash = hashlib.sha256(data).hexdigest()
-    # C：分块配置（JSON 字符串）。空→pipeline 回退 KB 配置→env
+    # C：分块配置（JSON 字符串）。未显式指定→落 KB 默认（每文档存自己的方法，与 RAGFlow 一致）
     pcfg: dict = {}
     if parseConfig:
         try:
             pcfg = json.loads(parseConfig) if isinstance(parseConfig, str) else dict(parseConfig)
         except Exception:  # noqa: BLE001
             pcfg = {}
+    if not pcfg or not pcfg.get("method"):
+        pcfg = {**_kb_default_parser_config(kb_id), **pcfg}
     method = pcfg.get("method") or "naive"
     # 幂等（#23）：同租户同 content_hash 命中 → 链 kb + 返回已存 file_id，不重摄
     with get_conn() as conn:
@@ -178,7 +191,7 @@ def list_kb_docs(kb_id: str, request: Request):
     with get_conn() as conn:
         with conn.cursor(row_factory=dict_row) as cur:
             cur.execute(
-                """SELECT f.id, f.name, f.status, f.page_count, f.size_bytes, f.parser_type
+                """SELECT f.id, f.name, f.status, f.page_count, f.size_bytes, f.parser_type, f.parser_config
                    FROM kb_file_kb fk JOIN kb_file f ON f.id = fk.file_id
                    WHERE fk.kb_id = %s AND f.tenant_id = %s
                    ORDER BY f.created_at DESC""",
@@ -193,6 +206,7 @@ def list_kb_docs(kb_id: str, request: Request):
             "pages": r["page_count"],
             "sizeBytes": r["size_bytes"],
             "parserType": r["parser_type"],
+            "parserConfig": r["parser_config"],
         }
         for r in rows
     ]

@@ -22,6 +22,7 @@ export interface Doc {
   pages: number | null;
   sizeBytes: number | null;
   parserType?: string;
+  parserConfig?: ParserConfig | null;
 }
 
 // ---- 分块配置（C）----
