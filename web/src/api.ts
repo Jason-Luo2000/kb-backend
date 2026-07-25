@@ -2,6 +2,7 @@ import { api } from "./api/client";
 import type {
   AuditVerify,
   Doc,
+  DriveFile,
   KB,
   Me,
   ModelConfig,
@@ -42,6 +43,42 @@ export const readAnchor = (docId: string, anchor: string, before = 2, after = 4)
   api
     .post<ReadAnchorResult>("/v1/read-anchor", { docId, anchor, before, after })
     .then((r) => r.data);
+
+// ---- 个人文件库（F）----
+export const uploadToDrive = (file: File, parseConfig?: ParserConfig) => {
+  const form = new FormData();
+  form.append("file", file);
+  if (parseConfig) form.append("parseConfig", JSON.stringify(parseConfig));
+  return api
+    .post<{ fileId: string; status: string; reused?: boolean }>("/v1/files", form, {
+      headers: { "Content-Type": "multipart/form-data" },
+    })
+    .then((r) => r.data);
+};
+export const listFiles = () => api.get<DriveFile[]>("/v1/files").then((r) => r.data);
+export const deleteFile = (id: string) => api.delete(`/v1/files/${id}`).then((r) => r.data);
+export const renameFile = (id: string, body: { name?: string; parseConfig?: ParserConfig }) =>
+  api.patch(`/v1/files/${id}`, body).then((r) => r.data);
+export const attachFile = (id: string, kbId: string, parseConfig?: ParserConfig) =>
+  api.post<{ fileId: string; kbId: string; status: string; stats?: unknown }>(`/v1/files/${id}/attach`, {
+    kbId,
+    parseConfig,
+  }).then((r) => r.data);
+export const detachFile = (id: string, kbId: string) =>
+  api.post(`/v1/files/${id}/detach`, { kbId }).then((r) => r.data);
+
+// ---- 库内文档管理（F）----
+export const removeDocFromKb = (kbId: string, docId: string) =>
+  api.delete(`/v1/kbs/${kbId}/docs/${docId}`).then((r) => r.data);
+export const reparseDoc = (kbId: string, docId: string, parseConfig?: ParserConfig) =>
+  api.post<{ docId: string; stats: { version: number; chunks: number } }>(
+    `/v1/kbs/${kbId}/docs/${docId}/reparse`,
+    { parseConfig }
+  ).then((r) => r.data);
+export const renameDoc = (kbId: string, docId: string, title: string) =>
+  api.patch(`/v1/kbs/${kbId}/docs/${docId}`, { title }).then((r) => r.data);
+export const bulkDocs = (kbId: string, ids: string[], action: "delete" | "reparse") =>
+  api.post(`/v1/kbs/${kbId}/docs/bulk`, { ids, action }).then((r) => r.data);
 
 // ---- 检索 ----
 export const search = (

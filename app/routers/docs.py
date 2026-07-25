@@ -203,3 +203,95 @@ def parser_methods(request: Request):
     from app.ingest import chunker_factory
 
     return chunker_factory.METHOD_INFO
+
+
+# ============ F：库内文档管理（detach / reparse / rename / bulk）============
+def _require_kb_write(kb_id: str, request: Request):
+    principal = get_principal(request)
+    decision = resolve_authz(principal)
+    if kb_id not in decision.allowed_kb_ids or not can_write(decision, kb_id):
+        raise HTTPException(status_code=403, detail="KB_FORBIDDEN_KB")
+    return principal
+
+
+@router.delete("/kbs/{kb_id}/docs/{doc_id}")
+def remove_doc_from_kb(kb_id: str, doc_id: str, request: Request):
+    """把文档移出该 KB（解挂 kb_file_kb；文件保留在个人库/其它库，已建索引不撤）。"""
+    _require_kb_write(kb_id, request)
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM kb_file_kb WHERE file_id=%s AND kb_id=%s",
+                (doc_id, kb_id),
+            )
+            removed = cur.rowcount
+    audit("DOC_REMOVE", request, kb_ids=[kb_id], result="ok" if removed else "noop", detail={"doc_id": doc_id})
+    return {"ok": True, "removed": removed}
+
+
+@router.post("/kbs/{kb_id}/docs/{doc_id}/reparse")
+def reparse_doc(kb_id: str, doc_id: str, body: dict, request: Request):
+    """重新解析（新版本；T11/T12 增量自动适用）。可选 parseConfig 覆盖。"""
+    principal = _require_kb_write(kb_id, request)
+    pcfg = body.get("parseConfig") if isinstance(body.get("parseConfig"), dict) else None
+    _t0 = time.perf_counter()
+    try:
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                if pcfg:
+                    cur.execute(
+                        "UPDATE kb_file SET parser_config=%s, parser_type=%s WHERE id=%s AND tenant_id=%s",
+                        (Json(pcfg), pcfg.get("method") or "naive", doc_id, principal.tenant_id),
+                    )
+        stat = pipeline.ingest_file(doc_id)
+    except Exception as e:  # noqa: BLE001
+        INGEST_DURATION.labels(principal.tenant_id, "fail").observe(time.perf_counter() - _t0)
+        raise HTTPException(status_code=500, detail=f"reparse failed: {e}") from e
+    INGEST_DURATION.labels(principal.tenant_id, "ok").observe(time.perf_counter() - _t0)
+    audit("DOC_REPARSE", request, kb_ids=[kb_id], result="ok", detail={"doc_id": doc_id})
+    return {"docId": doc_id, "stats": stat}
+
+
+@router.patch("/kbs/{kb_id}/docs/{doc_id}")
+def update_doc(kb_id: str, doc_id: str, body: dict, request: Request):
+    """重命名文档（改 kb_file.name）。"""
+    principal = _require_kb_write(kb_id, request)
+    name = (body.get("title") or body.get("name") or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="KB_VALIDATION")
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """UPDATE kb_file SET name=%s WHERE id=%s AND tenant_id=%s
+                   AND EXISTS (SELECT 1 FROM kb_file_kb fk WHERE fk.file_id=kb_file.id AND fk.kb_id=%s)""",
+                (name, doc_id, principal.tenant_id, kb_id),
+            )
+            if cur.rowcount == 0:
+                raise HTTPException(status_code=404, detail="KB_DOC_NOT_FOUND")
+    return {"ok": True}
+
+
+@router.post("/kbs/{kb_id}/docs/bulk")
+def bulk_docs(kb_id: str, body: dict, request: Request):
+    """批量：{ids:[docId], action: delete|reparse}。delete=移出该 KB；reparse=逐个重摄。"""
+    _require_kb_write(kb_id, request)
+    ids = body.get("ids") or []
+    action = body.get("action")
+    done = []
+    for doc_id in ids:
+        if action == "delete":
+            with get_conn() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "DELETE FROM kb_file_kb WHERE file_id=%s AND kb_id=%s",
+                        (doc_id, kb_id),
+                    )
+            done.append(doc_id)
+        elif action == "reparse":
+            try:
+                pipeline.ingest_file(doc_id)
+                done.append(doc_id)
+            except Exception:  # noqa: BLE001
+                pass  # 单个失败不阻塞其余
+    audit("DOC_BULK", request, kb_ids=[kb_id], result="ok", detail={"action": action, "count": len(done)})
+    return {"action": action, "done": done}

@@ -10,6 +10,7 @@ import {
   LogoutOutlined,
   UserOutlined,
   RobotOutlined,
+  FolderOpenOutlined,
 } from "@ant-design/icons";
 import { getMe } from "../api";
 import { useAuth } from "../context/AuthContext";
@@ -36,6 +37,7 @@ export default function Layout() {
 
   const items = [
     { key: "/kbs", icon: <BookOutlined />, label: "知识库" },
+    { key: "/files", icon: <FolderOpenOutlined />, label: "文件库" },
     { key: "/chat", icon: <MessageOutlined />, label: "问答" },
   ];
   if (me.is_admin) items.push({ key: "/acl", icon: <SafetyOutlined />, label: "授权" });

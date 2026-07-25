@@ -38,6 +38,17 @@ export interface ParserMethod {
   domain: boolean;
 }
 
+// ---- 个人文件库（F）----
+export interface DriveFile {
+  fileId: string;
+  name: string;
+  status: string;
+  sizeBytes: number | null;
+  parserType?: string;
+  kbCount: number;
+  createdAt?: string | null;
+}
+
 export interface Citation {
   chunkId: string;
   page: number;

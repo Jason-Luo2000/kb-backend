@@ -8,6 +8,7 @@ import ACL from "./pages/ACL";
 import Ops from "./pages/Ops";
 import Monitor from "./pages/Monitor";
 import Models from "./pages/Models";
+import Files from "./pages/Files";
 
 export default function App() {
   return (
@@ -17,6 +18,7 @@ export default function App() {
         <Route index element={<Navigate to="/kbs" replace />} />
         <Route path="kbs" element={<KBs />} />
         <Route path="kbs/:kbId/docs" element={<Docs />} />
+        <Route path="files" element={<Files />} />
         <Route path="chat" element={<Chat />} />
         <Route path="acl" element={<ACL />} />
         <Route path="models" element={<Models />} />
