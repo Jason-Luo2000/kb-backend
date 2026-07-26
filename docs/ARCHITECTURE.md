@@ -1,6 +1,6 @@
 # 架构
 
-kb-backend 是单进程 FastAPI 服务，PG 为权威存储、ES 为检索派生、MinIO 存原文对象、智谱 API 提供 LLM+embedding。完整设计动机与评审项见主方案 `~/Developer/pi/KB-AGENT-PLAN.md`，本文档讲**已实现的运行机制**。
+kb-backend 是单进程 FastAPI 服务，PG 为权威存储、ES 为检索派生、MinIO 存原文对象、模型 provider 适配器提供 LLM+embedding+rerank（多渠道，登录「模型管理」配置）。完整设计动机与评审项见主方案 `~/Developer/pi/KB-AGENT-PLAN.md`，本文档讲**已实现的运行机制**。
 
 ## 总体数据流
 

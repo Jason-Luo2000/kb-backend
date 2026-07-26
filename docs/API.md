@@ -8,7 +8,7 @@ Base URL：`http://localhost:8000`（Docker）或 `http://localhost:8001`（本�
 - `Authorization: Bearer <token>`（推荐）
 - `X-KB-API-Key: <token>`
 
-token 经 sha256 查 `kb_api_key`（未撤销）→ `Principal(tenant_id, user_id)`。bootstrap 种 default 租户/owner/api_key（`KB_API_KEY=kb_dev_api_key`）。
+token 经 sha256 查 `kb_api_key`（未撤销）→ `Principal(tenant_id, user_id)`。bootstrap 种 default 租户/owner/api_key（key 取自 `KB_API_KEY`，`deploy.sh` 现场生成）。
 
 ## 错误约定
 
@@ -85,20 +85,21 @@ token 经 sha256 查 `kb_api_key`（未撤销）→ `Principal(tenant_id, user_i
 ## 示例
 
 ```bash
+# KEY=你的 KB_API_KEY（./deploy.sh 打印；bare-metal 默认 kb_dev_api_key）；KB_ID=知识库 id
 # 上传
-curl -XPOST -H "Authorization: Bearer kb_dev_api_key" \
+curl -XPOST -H "Authorization: Bearer $KEY" \
   -F "file=@doc.pdf" http://localhost:8001/v1/kbs/$KB_ID/docs
 
 # 检索
-curl -XPOST -H "Authorization: Bearer kb_dev_api_key" -H "Content-Type: application/json" \
+curl -XPOST -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" \
   -d '{"query":"双路召回","knowledgeBaseIds":["'$KB_ID'"]}' http://localhost:8001/v1/search
 
 # GC（dry_run 报告）
-curl -XPOST -H "Authorization: Bearer kb_dev_api_key" \
+curl -XPOST -H "Authorization: Bearer $KEY" \
   -d '{"dryRun":true}' http://localhost:8001/v1/admin/gc
 
 # 验审计链
-curl -H "Authorization: Bearer kb_dev_api_key" http://localhost:8001/v1/admin/audit/verify
+curl -H "Authorization: Bearer $KEY" http://localhost:8001/v1/admin/audit/verify
 ```
 
 Python / TypeScript 客户端用法见 [README](../README.md#客户端) 与 [sdk/kb_sdk/](../sdk/kb_sdk/)、[pi-ext/kb_client.ts](../pi-ext/kb_client.ts)。

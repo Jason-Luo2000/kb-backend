@@ -27,16 +27,16 @@ export default function Login() {
         <Typography.Title level={4} className="kb-title" style={{ textAlign: "center", marginBottom: 20 }}>
           登录
         </Typography.Title>
-        <Form onFinish={onFinish} layout="vertical" initialValues={{ apiKey: "kb_dev_api_key" }}>
+        <Form onFinish={onFinish} layout="vertical" initialValues={{ apiKey: "" }}>
           <Form.Item name="apiKey" label="API Key" rules={[{ required: true }]}>
-            <Input.Password prefix={<LockOutlined />} placeholder="kb_dev_api_key" />
+            <Input.Password prefix={<LockOutlined />} placeholder="你的 KB_API_KEY" />
           </Form.Item>
           <Form.Item name="base" label="后端地址（留空 = dev proxy :8001）">
             <Input placeholder="http://localhost:8001" />
           </Form.Item>
           <Button type="primary" htmlType="submit" block size="large">进入控制台</Button>
           <Typography.Text type="secondary" style={{ display: "block", marginTop: 16, fontSize: 12, textAlign: "center" }}>
-            本地开发默认 <code>kb_dev_api_key</code>；后端 :8001，Vite proxy 同源。
+            部署用 <code>./deploy.sh</code> 打印的 key（bare-metal 默认 <code>kb_dev_api_key</code>）；后端 :8001，Vite proxy 同源。
           </Typography.Text>
         </Form>
       </Card>

@@ -4,10 +4,9 @@
 
 ### Docker（生产形态）
 ```bash
-cp .env.example .env            # 填 ZHIPU_API_KEY 等
-docker compose up --build       # postgres/es/minio/redis/kb-backend
+./deploy.sh                    # 现场生成密钥 + 起 postgres/es/minio/redis/backend/web(nginx)
 ```
-容器启动跑 `app.bootstrap`：建 PG 表 + ES mapping + MinIO bucket + default 租户/owner/api_key（幂等）。
+见 [README §快速开始 A](../README.md#a-docker-一键部署生产形态)。容器入口跑 `app.bootstrap`：建 PG 表 + ES mapping + MinIO bucket + default 租户/owner/api_key（幂等）。
 
 ### 本机内存模式（开发/无 Docker）
 见 [README §快速开始 B](../README.md#b-本机内存模式无-docker--无-gpu)。要点：`STORE_MODE=memory`、本机 PG + Anaconda 3.12、`PATH_A_THETA=-1`（embedding 余额不足时）。
@@ -62,11 +61,11 @@ SLO 告警规则 + Grafana 大盘属部署侧（待定）。
 
 | 变量 | 默认 | 说明 |
 |---|---|---|
-| `ZHIPU_API_KEY` | — | 智谱 key（LLM + embedding） |
+| `MODEL_SECRET` | dev 默认 | Fernet 派生，加密「模型管理」里所有 provider key；**生产必改且固定**，丢失=模型 key 作废 |
 | `STORE_MODE` | `es` | `es`（真 ES/MinIO）/ `memory`（内存替代，开发用） |
 | `DATABASE_URL` | `postgresql+psycopg://kb:...@localhost:5432/kb` | 本机 socket 用 `postgresql+psycopg:///kb` |
 | `ES_URL` / `REDIS_URL` / `MINIO_*` | localhost | 基础设施地址 |
-| `KB_API_KEY` | `kb_dev_api_key` | bootstrap 种的 default api_key |
+| `KB_API_KEY` | `kb_dev_api_key` | owner 登录 key；`deploy.sh` 现场生成（代码缺省 `kb_dev_api_key`） |
 | `KB_USER_ID` | `u_demo` | default owner external_id |
 | `CHUNK_TOKEN_NUM` / `CHUNK_OVERLAP` | 512 / 0.1 | 分块参数 |
 | `MIN_TOKENS_TO_SUMMARIZE` | 1500 | 小于则跳过总结 |
@@ -80,6 +79,8 @@ SLO 告警规则 + Grafana 大盘属部署侧（待定）。
 | `CORS_ORIGINS` | `http://localhost:5173,...` | 前端跨域白名单（逗号分隔） |
 
 完整列表见 [config.py](../app/config.py)。
+
+> 模型 provider（LLM / embedding / rerank）在「模型管理」配置，支持多渠道（OpenAI 兼容 / Anthropic / Gemini / 本地 / 智谱 等）。`ZHIPU_*` env 仍可作可选种子（bare-metal 便利），非必填。
 
 ## 脚本
 
@@ -108,7 +109,7 @@ SLO 告警规则 + Grafana 大盘属部署侧（待定）。
 |---|---|
 | `bigint out of range` | simhash 64bit unsigned 超 PG BIGINT signed → 已转 signed（[simhash.to_signed](../app/retrieval/simhash.py)）；若再现检查是否漏转 |
 | `UntranslatableCharacter` (JSONB) | 本地 PG SQL_ASCII → outbox payload 用 TEXT 已绕；新增 JSONB 列存中文需改 TEXT 或迁 UTF8 库 |
-| embedding 429 / code 1113 | 智谱 embedding 余额不足 → 自动退哈希伪向量；设 `PATH_A_THETA=-1` 召回；生产换 BGE-M3 |
+| embedding 429 / code 1113 | embedding provider 不可用（余额不足/超时）→ 自动退哈希伪向量；设 `PATH_A_THETA=-1` 召回；生产在「模型管理」配真 embedding |
 | path_a_test 报「无锚点」 | LLM 429（无 summary→无锚点），非代码回归；LLM 恢复后重跑 |
 | upload 413 KB_QUOTA_EXCEEDED | 超 docs/bytes 配额；调 `kb_quota` 或 config 缺省 |
 | `git push` 超时 | github 被代理拦（fake-ip 198.18.x.x）→ 修代理放行 github，重试 |

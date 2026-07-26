@@ -20,12 +20,12 @@
                                      │
         ┌──────────┬─────────────────┼────────────┬──────────┐
         ▼          ▼                 ▼            ▼          ▼
-   PostgreSQL   ES 8.x           MinIO        Redis*     智谱 API
-   元数据/版本  BM25+KNN/版本    原文/对象    (预留)    glm-5.2 + embedding-3
+   PostgreSQL   ES 8.x           MinIO        Redis*     模型 API（多 provider）
+   元数据/版本  BM25+KNN/版本    原文/对象    (预留)    LLM + embedding + rerank
         │
         └─ audit 哈希链 / 配额用量 / 查询日志 / 摄入计量
 ```
-\* Redis 已声明依赖、当前未启用（异步 saga 留后期）。模型层为适配器，默认智谱 API（免 GPU），余额不足自动退哈希伪向量（仅验证流程，生产换 BGE-M3）。
+\* Redis 已声明依赖、当前未启用（异步 saga 留后期）。模型层为多 provider 适配器（OpenAI 兼容 / Anthropic / Gemini / 本地 等），登录「模型管理」配置；未配 embedding（或 provider 不可用）时自动退哈希伪向量（仅验证流程，生产配真 embedding）。
 
 深入见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
 
@@ -61,30 +61,31 @@ psql postgres -c "create database kb"
 
 # 2. venv + 依赖
 cd ~/Developer/kb-backend
-/opt/anaconda3/bin/python3.12 -m venv .venv
+python3.12 -m venv .venv
 .venv/bin/pip install -e .                  # 阿里源：-i https://mirrors.aliyun.com/pypi/simple/
 
-# 3. 配 .env（关键项）
+# 3. 配 .env
 cp .env.example .env
+#   把 __GENERATE__ 占位（KB_API_KEY / MODEL_SECRET / POSTGRES_PASSWORD / MINIO_*）改成你自己的值
 #   STORE_MODE=memory
 #   DATABASE_URL=postgresql+psycopg:///kb   # 本机 PG socket
-#   ZHIPU_API_KEY=<你的智谱 key>
 #   KB_BACKEND_URL=http://localhost:8001     # 8000 被占就用 8001
 #   PATH_A_THETA=-1.0                        # 哈希伪向量时设；真 embedding 删此行
 #   MIN_TOKENS_TO_SUMMARIZE=200
 #   CHUNK_TOKEN_NUM=256
+#   模型：启动后用 KB_API_KEY 登录「模型管理」加任意渠道 embedding + LLM（同 Docker）
 
 # 4. 建表 + 起服务
 .venv/bin/python -m app.bootstrap
 .venv/bin/uvicorn app.main:app --port 8001
 
 # 5. e2e（另开终端）
-KB_BACKEND_URL=http://localhost:8001 KB_API_KEY=kb_dev_api_key \
+KB_BACKEND_URL=http://localhost:8001 KB_API_KEY=<你 .env 里的 KB_API_KEY> \
   .venv/bin/python scripts/e2e_demo.py
 ```
 
 **注意**：
-- 智谱 embedding 单独计费，余额不足（429）自动退**哈希伪向量**（无语义，仅验证流程），此时路 A 软门控须设 `PATH_A_THETA=-1`。生产请充值或换本地 BGE-M3。
+- 未配 embedding（或 provider 429/超时）自动退**哈希伪向量**（无语义，仅验证流程），此时路 A 软门控须设 `PATH_A_THETA=-1`。生产请在「模型管理」配真 embedding。
 - 内存模式重启清空索引（PG 元数据持久）；生产用 Docker 起真 ES/MinIO。`STORE_MODE=es`（默认）走真 ES/MinIO，业务代码不变。
 
 ## 客户端
@@ -94,7 +95,7 @@ pip install -e sdk/                     # Python kb-sdk 1.0
 ```
 ```python
 from kb_sdk import KBClient
-c = KBClient("http://localhost:8001", "kb_dev_api_key")
+c = KBClient("http://localhost:8001", "<你的 KB_API_KEY>")
 c.upload(kb_id, "doc.pdf")
 hits = c.search("查询", knowledge_base_ids=[kb_id])
 ```
@@ -107,7 +108,7 @@ Vite + React + TS + Ant Design 的 Web 控制台（SPA 调 HTTP API）：登录 
 
 ```bash
 # 后端先起（:8001），CORS 默认放行 :5173
-cd web && npm install && npm run dev      # → http://localhost:5173，用 kb_dev_api_key 登录
+cd web && npm install && npm run dev      # → http://localhost:5173，用你的 KB_API_KEY 登录
 ```
 
 构建：`npm run build` → `web/dist`（可由后端 StaticFiles 挂载或 nginx 托管）。详见 [web/README.md](web/README.md)。
@@ -164,7 +165,7 @@ docs/        ARCHITECTURE / API / OPERATIONS
 .venv/bin/pytest tests/ -q
 
 # e2e（需服务在跑）
-KB_BACKEND_URL=http://localhost:8001 KB_API_KEY=kb_dev_api_key .venv/bin/python scripts/e2e_demo.py
+KB_BACKEND_URL=http://localhost:8001 KB_API_KEY=<你的 KB_API_KEY> .venv/bin/python scripts/e2e_demo.py
 KB_BACKEND_URL=http://localhost:8001 .venv/bin/python scripts/cross_tenant_test.py   # 跨租户红队（A5）
 
 # 各任务验收脚本（独立进程、需干净库）

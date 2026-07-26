@@ -24,7 +24,7 @@ npm install
 npm run dev      # → http://localhost:5173
 ```
 
-浏览器打开 :5173，用 `kb_dev_api_key` 登录。
+浏览器打开 :5173，用你的 KB_API_KEY 登录（bare-metal 默认 `kb_dev_api_key`）。
 
 ## 构建
 
