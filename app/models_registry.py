@@ -30,6 +30,7 @@ class ModelConfig:
     dim: int | None
     name: str = ""
     is_default: bool = False
+    max_tokens: int | None = None  # LLM 最大输出 token（模型级）
 
 
 def set_tenant(tenant_id: str | None) -> None:
@@ -51,6 +52,7 @@ def _row_to_cfg(row: dict) -> ModelConfig:
         dim=row["dim"],
         name=row["name"],
         is_default=bool(row["is_default"]),
+        max_tokens=row.get("max_tokens"),
     )
 
 
@@ -82,7 +84,8 @@ def _env_fallback(kind: str) -> ModelConfig | None:
         return None
     if kind == "llm":
         return ModelConfig(None, "llm", "anthropic", settings.zhipu_llm_base_url, settings.zhipu_api_key,
-                           settings.zhipu_llm_model, None, "zhipu-llm(env)", True)
+                           settings.zhipu_llm_model, None, "zhipu-llm(env)", True,
+                           max_tokens=settings.default_llm_max_tokens)
     if kind == "embedding":
         return ModelConfig(None, "embedding", "openai", settings.zhipu_embed_base_url, settings.zhipu_api_key,
                            settings.zhipu_embed_model, settings.zhipu_embed_dim, "zhipu-embed(env)", True)
@@ -161,6 +164,7 @@ def list_models(tenant_id: str | None, include_system: bool = True) -> list[dict
             "hasKey": bool(crypto.decrypt(r["api_key_enc"])),
             "modelName": cfg.model_name,
             "dim": cfg.dim,
+            "maxTokens": cfg.max_tokens,
             "isDefault": cfg.is_default,
             "system": r["tenant_id"] is None,
         })
@@ -195,13 +199,13 @@ def create_model(tenant_id: str | None, body: dict) -> dict:
         with conn.cursor() as cur:
             cur.execute(
                 """INSERT INTO kb_model_config(id,tenant_id,name,kind,provider_type,base_url,api_key_enc,
-                   model_name,dim,is_default)
-                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                   model_name,dim,max_tokens,is_default)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
                 (
                     mid, tenant_id, body.get("name") or body.get("modelName"),
                     kind, body.get("providerType", "openai"), body.get("baseUrl"),
                     crypto.encrypt(body.get("apiKey", "")),
-                    body["modelName"], body.get("dim"), 1 if is_default else 0,
+                    body["modelName"], body.get("dim"), body.get("maxTokens"), 1 if is_default else 0,
                 ),
             )
     return {"id": mid}
@@ -212,7 +216,7 @@ def update_model(model_id: str, tenant_id: str | None, body: dict) -> bool:
     sets: list[str] = []
     args: list = []
     for f_in, f_db in (("name", "name"), ("providerType", "provider_type"), ("baseUrl", "base_url"),
-                       ("modelName", "model_name"), ("dim", "dim")):
+                       ("modelName", "model_name"), ("dim", "dim"), ("maxTokens", "max_tokens")):
         if f_in in body:
             sets.append(f"{f_db}=%s")
             args.append(body[f_in])

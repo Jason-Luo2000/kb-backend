@@ -33,7 +33,7 @@ def summarize_window(window: list[dict]) -> list[dict]:
     block_list = "\n".join(f"[{c['chunk_id']}] {c['content']}" for c in window)
     prompt = f"【chunk_id 白名单】{json.dumps(whitelist, ensure_ascii=False)}\n\n【窗口文本】\n{block_list}"
     try:
-        raw = llm.chat(prompt, system=SUMMARY_SYSTEM, max_tokens=4096)
+        raw = llm.chat(prompt, system=SUMMARY_SYSTEM)  # max_tokens 走模型级配置
         items = json.loads(_extract_json(raw))
     except Exception:
         return []

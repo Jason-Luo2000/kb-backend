@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Button,
   Card,
+  Descriptions,
   Form,
   Input,
   InputNumber,
@@ -42,6 +43,7 @@ export default function Models() {
   const { data: defaults } = useQuery({ queryKey: ["modelDefaults"], queryFn: getModelDefaults });
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<ModelConfig | null>(null);
+  const [detail, setDetail] = useState<ModelConfig | null>(null);
   const [form] = Form.useForm<ModelInput>();
 
   const invalidate = () => {
@@ -51,7 +53,11 @@ export default function Models() {
 
   const saveMut = useMutation({
     mutationFn: async (v: ModelInput) => {
-      const body: ModelInput = { ...v, dim: v.kind === "embedding" ? v.dim : null };
+      const body: ModelInput = {
+        ...v,
+        dim: v.kind === "embedding" ? v.dim : null,
+        maxTokens: v.kind === "llm" ? v.maxTokens : null,
+      };
       if (editing) {
         // 空 apiKey 表示不改 key
         return updateModel(editing.id, body.apiKey ? body : { ...body, apiKey: undefined });
@@ -80,24 +86,33 @@ export default function Models() {
 
   const openCreate = () => {
     setEditing(null);
-    form.resetFields();
-    form.setFieldsValue({ kind: "llm", providerType: "openai", isDefault: true });
     setOpen(true);
   };
   const openEdit = (m: ModelConfig) => {
     setEditing(m);
-    form.setFieldsValue({
-      name: m.name,
-      kind: m.kind,
-      providerType: m.providerType,
-      baseUrl: m.baseUrl,
-      modelName: m.modelName,
-      dim: m.dim,
-      isDefault: m.isDefault,
-      apiKey: "",
-    });
     setOpen(true);
   };
+
+  // 弹窗打开后再回填表单（编辑复用现有配置；新增给默认值）。避免 destroyOnClose 时机错位
+  useEffect(() => {
+    if (!open) return;
+    if (editing) {
+      form.setFieldsValue({
+        name: editing.name,
+        kind: editing.kind,
+        providerType: editing.providerType,
+        baseUrl: editing.baseUrl,
+        modelName: editing.modelName,
+        dim: editing.dim,
+        maxTokens: editing.maxTokens,
+        isDefault: editing.isDefault,
+        apiKey: "", // 留空 = 不改 key
+      });
+    } else {
+      form.resetFields();
+      form.setFieldsValue({ kind: "llm", providerType: "openai", isDefault: true });
+    }
+  }, [open, editing, form]);
 
   return (
     <>
@@ -140,39 +155,28 @@ export default function Models() {
             filters: (Object.keys(KIND_LABEL) as ModelKind[]).map((k) => ({ text: KIND_LABEL[k], value: k })),
             onFilter: (v, r: ModelConfig) => r.kind === v,
           },
-          { title: "Provider", dataIndex: "providerType" },
-          { title: "模型", dataIndex: "modelName" },
-          { title: "base_url", dataIndex: "baseUrl", ellipsis: true },
-          {
-            title: "API-key",
-            dataIndex: "apiKey",
-            render: (k: string, r: ModelConfig) => (r.hasKey ? k : <Typography.Text type="secondary">无</Typography.Text>),
-          },
           {
             title: "默认",
             dataIndex: "isDefault",
+            width: 80,
             render: (d: boolean) => (d ? <Tag color="green">默认</Tag> : null),
           },
           {
             title: "来源",
             dataIndex: "system",
+            width: 80,
             render: (s: boolean) => (s ? <Tag>系统</Tag> : <Tag color="purple">租户</Tag>),
           },
           {
             title: "操作",
+            width: 210,
             render: (_: unknown, r: ModelConfig) => (
               <Space>
-                <Button size="small" loading={testMut.isPending} onClick={() => testMut.mutate(r.id)}>
-                  测连通
-                </Button>
-                <Button size="small" onClick={() => openEdit(r)}>
-                  编辑
-                </Button>
+                <Button size="small" type="primary" onClick={() => setDetail(r)}>详情</Button>
+                <Button size="small" onClick={() => openEdit(r)}>编辑</Button>
                 {!r.system && (
                   <Popconfirm title="删除该模型？" onConfirm={() => delMut.mutate(r.id)}>
-                    <Button size="small" danger>
-                      删除
-                    </Button>
+                    <Button size="small" danger>删除</Button>
                   </Popconfirm>
                 )}
               </Space>
@@ -187,9 +191,8 @@ export default function Models() {
         onCancel={() => setOpen(false)}
         onOk={() => form.validateFields().then((v) => saveMut.mutate(v))}
         confirmLoading={saveMut.isPending}
-        destroyOnClose
       >
-        <Form form={form} layout="vertical" preserve={false}>
+        <Form form={form} layout="vertical">
           <Form.Item name="name" label="显示名称" rules={[{ required: true }]}>
             <Input placeholder="如 zhipu-glm" />
           </Form.Item>
@@ -217,6 +220,15 @@ export default function Models() {
               ) : null
             }
           </Form.Item>
+          <Form.Item noStyle shouldUpdate={(prev, cur) => prev.kind !== cur.kind}>
+            {({ getFieldValue }) =>
+              getFieldValue("kind") === "llm" ? (
+                <Form.Item name="maxTokens" label="最大输出 token" tooltip="该模型每次对话/总结的输出上限；留空用默认 4096">
+                  <InputNumber min={1} style={{ width: "100%" }} placeholder="如 4096 / 8192" />
+                </Form.Item>
+              ) : null
+            }
+          </Form.Item>
           <Form.Item name="apiKey" label={editing ? "API Key（留空不改）" : "API Key"}>
             <Input.Password placeholder="sk-..." />
           </Form.Item>
@@ -224,6 +236,45 @@ export default function Models() {
             <Switch />
           </Form.Item>
         </Form>
+      </Modal>
+
+      {/* 详情 */}
+      <Modal
+        title={`模型详情 · ${detail?.name || ""}`}
+        open={!!detail}
+        onCancel={() => setDetail(null)}
+        footer={[
+          <Button key="test" loading={testMut.isPending} onClick={() => detail && testMut.mutate(detail.id)}>
+            测连通
+          </Button>,
+          <Button key="close" type="primary" onClick={() => setDetail(null)}>
+            关闭
+          </Button>,
+        ]}
+      >
+        {detail && (
+          <Descriptions column={1} size="small" bordered>
+            <Descriptions.Item label="类型">{KIND_LABEL[detail.kind]}</Descriptions.Item>
+            <Descriptions.Item label="Provider">{detail.providerType}</Descriptions.Item>
+            <Descriptions.Item label="模型">{detail.modelName}</Descriptions.Item>
+            <Descriptions.Item label="Base URL">
+              <Typography.Text copyable style={{ wordBreak: "break-all" }}>
+                {detail.baseUrl || "-"}
+              </Typography.Text>
+            </Descriptions.Item>
+            <Descriptions.Item label="API Key">
+              {detail.hasKey ? detail.apiKey : <Typography.Text type="secondary">无</Typography.Text>}
+            </Descriptions.Item>
+            {detail.kind === "embedding" && (
+              <Descriptions.Item label="维度">{detail.dim ?? "-"}</Descriptions.Item>
+            )}
+            {detail.kind === "llm" && (
+              <Descriptions.Item label="最大输出 token">{detail.maxTokens ?? "默认 4096"}</Descriptions.Item>
+            )}
+            <Descriptions.Item label="默认">{detail.isDefault ? "是" : "否"}</Descriptions.Item>
+            <Descriptions.Item label="来源">{detail.system ? "系统（env 种子，只读）" : "租户"}</Descriptions.Item>
+          </Descriptions>
+        )}
       </Modal>
     </>
   );

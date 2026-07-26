@@ -120,6 +120,7 @@ export interface ModelInput {
   apiKey?: string;
   modelName: string;
   dim?: number | null;
+  maxTokens?: number | null;
   isDefault?: boolean;
 }
 export const listModels = () =>

@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     zhipu_embed_model: str = "embedding-3"
     zhipu_embed_base_url: str = "https://open.bigmodel.cn/api/paas/v4"
     zhipu_embed_dim: int = 2048
+    default_llm_max_tokens: int = 4096  # 模型级 max_tokens 缺省（模型未设时回退）
 
     # 基础设施
     database_url: str = "postgresql+psycopg://kb:kb_dev_pwd@localhost:5432/kb"

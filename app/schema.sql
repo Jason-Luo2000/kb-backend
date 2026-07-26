@@ -274,11 +274,13 @@ CREATE TABLE IF NOT EXISTS kb_model_config (
   api_key_enc TEXT,
   model_name VARCHAR(128) NOT NULL,
   dim INT,
+  max_tokens INT,                                  -- LLM 最大输出 token（模型级；None→default_llm_max_tokens）
   is_default SMALLINT DEFAULT 0,
   created_at TIMESTAMPTZ DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_model_tenant_kind ON kb_model_config(tenant_id, kind);
 CREATE INDEX IF NOT EXISTS idx_model_default ON kb_model_config(kind) WHERE is_default = 1 AND tenant_id IS NULL;
+ALTER TABLE kb_model_config ADD COLUMN IF NOT EXISTS max_tokens INT;  -- 已存库升级
 
 -- ============ C：分块配置（per-file）============
 -- parser_config 存生效的分块配置 {method,chunk_token_num,overlap,delimiter,layout_recognize}。

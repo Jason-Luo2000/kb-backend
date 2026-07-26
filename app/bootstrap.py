@@ -88,23 +88,23 @@ def bootstrap_models() -> None:
         return
     seeds = [
         ("llm", "zhipu-glm(env)", "anthropic", settings.zhipu_llm_base_url,
-         settings.zhipu_api_key, settings.zhipu_llm_model, None),
+         settings.zhipu_api_key, settings.zhipu_llm_model, None, settings.default_llm_max_tokens),
         ("embedding", "zhipu-embedding(env)", "openai", settings.zhipu_embed_base_url,
-         settings.zhipu_api_key, settings.zhipu_embed_model, settings.zhipu_embed_dim),
+         settings.zhipu_api_key, settings.zhipu_embed_model, settings.zhipu_embed_dim, None),
     ]
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute("SELECT 1 FROM kb_model_config WHERE tenant_id IS NULL LIMIT 1")
             if cur.fetchone():
                 return  # 已有系统行（可能用户改过），不覆盖
-            for kind, name, ptype, base, key, model, dim in seeds:
+            for kind, name, ptype, base, key, model, dim, max_tokens in seeds:
                 mid = str(uuid.uuid5(NAMESPACE, f"model:{kind}:env"))
                 cur.execute(
                     """INSERT INTO kb_model_config(id,tenant_id,name,kind,provider_type,base_url,
-                       api_key_enc,model_name,dim,is_default)
-                       VALUES (%s,NULL,%s,%s,%s,%s,%s,%s,%s,1)
+                       api_key_enc,model_name,dim,max_tokens,is_default)
+                       VALUES (%s,NULL,%s,%s,%s,%s,%s,%s,%s,%s,1)
                        ON CONFLICT (id) DO NOTHING""",
-                    (mid, name, kind, ptype, base, crypto.encrypt(key), model, dim),
+                    (mid, name, kind, ptype, base, crypto.encrypt(key), model, dim, max_tokens),
                 )
 
 

@@ -126,6 +126,7 @@ export interface ModelConfig {
   hasKey: boolean;
   modelName: string;
   dim: number | null;
+  maxTokens: number | null;
   isDefault: boolean;
   system: boolean; // 系统内置（env 种子，只读）
 }

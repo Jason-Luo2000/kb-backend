@@ -11,6 +11,7 @@ provider_type → 适配：
 import httpx
 from anthropic import Anthropic
 
+from app.config import settings
 from app.models_registry import ModelConfig, resolve_model
 
 
@@ -87,12 +88,13 @@ def _client(cfg: ModelConfig) -> LLMProvider:
     return c
 
 
-def chat(prompt: str, system: str | None = None, max_tokens: int = 4096, tenant_id: str | None = None) -> str:
-    """同步对话，返回纯文本。tenant_id 省略时读 contextvar（auth 中间件 set）。"""
+def chat(prompt: str, system: str | None = None, max_tokens: int | None = None, tenant_id: str | None = None) -> str:
+    """同步对话，返回纯文本。max_tokens 省略时用模型级配置（→ default_llm_max_tokens 兜底）。"""
     cfg = resolve_model("llm", tenant_id)
     if cfg is None or not cfg.api_key:
         raise RuntimeError("未配置 LLM（POST /v1/admin/models 或设 ZHIPU_API_KEY）")
-    return _client(cfg).chat(prompt, system, max_tokens)
+    mt = max_tokens if max_tokens is not None else (cfg.max_tokens or settings.default_llm_max_tokens)
+    return _client(cfg).chat(prompt, system, mt)
 
 
 def test_model(cfg: ModelConfig) -> str:
