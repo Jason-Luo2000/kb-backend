@@ -9,10 +9,12 @@ from app.main import app
 OWNER = {"Authorization": "Bearer kb_dev_api_key"}
 
 
-def _create_user(c, external_id, role="viewer", department=None):
+def _create_user(c, external_id, role="viewer", department=None, group=None):
     body = {"externalId": external_id, "role": role}
     if department:
         body["department"] = department
+    if group:
+        body["group"] = group
     r = c.post("/v1/admin/users", headers=OWNER, json=body).json()
     return r["userId"], r["apiKey"]
 
@@ -93,3 +95,55 @@ def test_delete_user():
         # 不能删自己
         me = c.get("/v1/me", headers=OWNER).json()
         assert c.delete(f"/v1/admin/users/{me["user_id"]}", headers=OWNER).status_code == 400
+
+
+def _mk_kb(c):
+    return c.post("/v1/kbs", headers=OWNER, json={"name": "gb-kb-" + uuid.uuid4().hex[:6], "visibility": "me"}).json()["id"]
+
+
+def test_grant_bulk_by_department():
+    with TestClient(app) as c:
+        rd = "rd-" + uuid.uuid4().hex[:6]
+        kid = _mk_kb(c)
+        u1, _ = _create_user(c, "gb-d1-" + uuid.uuid4().hex[:6], department=rd)
+        u2, _ = _create_user(c, "gb-d2-" + uuid.uuid4().hex[:6], department=rd, group="x")
+        u3, _ = _create_user(c, "gb-d3-" + uuid.uuid4().hex[:6], department="other-" + uuid.uuid4().hex[:6])
+        r = c.post("/v1/admin/grant-bulk", headers=OWNER, json={"kbIds": [kid], "department": rd}).json()
+        assert r["granted"] == 2  # 该部门的 u1+u2
+        assert {u["userId"] for u in r["users"]} == {u1, u2}
+        assert not any(k["kbId"] == kid for k in c.get(f"/v1/admin/users/{u3}/kbs", headers=OWNER).json())
+
+
+def test_grant_bulk_by_group_and_dryrun():
+    with TestClient(app) as c:
+        fe = "fe-" + uuid.uuid4().hex[:6]
+        kid = _mk_kb(c)
+        u1, _ = _create_user(c, "gb-g1-" + uuid.uuid4().hex[:6], department="rd", group=fe)
+        _u2, _ = _create_user(c, "gb-g2-" + uuid.uuid4().hex[:6], department="rd", group="be-" + uuid.uuid4().hex[:6])
+        # dryRun：只返匹配（该小组），不授权
+        dry = c.post("/v1/admin/grant-bulk", headers=OWNER,
+                     json={"kbIds": [kid], "group": fe, "dryRun": True}).json()
+        assert dry["dryRun"] is True and len(dry["users"]) == 1 and dry["users"][0]["userId"] == u1
+        assert not any(k["kbId"] == kid for k in c.get(f"/v1/admin/users/{u1}/kbs", headers=OWNER).json())
+        # 实授权
+        r = c.post("/v1/admin/grant-bulk", headers=OWNER, json={"kbIds": [kid], "group": fe}).json()
+        assert r["granted"] == 1
+        assert any(k["kbId"] == kid for k in c.get(f"/v1/admin/users/{u1}/kbs", headers=OWNER).json())
+
+
+def test_grant_bulk_by_user_ids_and_combo():
+    with TestClient(app) as c:
+        rd = "rd-" + uuid.uuid4().hex[:6]
+        fe = "fe-" + uuid.uuid4().hex[:6]
+        kid = _mk_kb(c)
+        u1, _ = _create_user(c, "gb-c1-" + uuid.uuid4().hex[:6], department=rd, group=fe)
+        u2, _ = _create_user(c, "gb-c2-" + uuid.uuid4().hex[:6], department=rd, group="be-" + uuid.uuid4().hex[:6])
+        u3, _ = _create_user(c, "gb-c3-" + uuid.uuid4().hex[:6], department="other", group=fe)
+        # 显式 userIds
+        r = c.post("/v1/admin/grant-bulk", headers=OWNER, json={"kbIds": [kid], "userIds": [u1, u2]}).json()
+        assert r["granted"] == 2
+        # 组合 部门=rd AND 小组=fe → 只 u1
+        kid2 = _mk_kb(c)
+        r2 = c.post("/v1/admin/grant-bulk", headers=OWNER,
+                    json={"kbIds": [kid2], "department": rd, "group": fe}).json()
+        assert r2["granted"] == 1 and r2["users"][0]["userId"] == u1

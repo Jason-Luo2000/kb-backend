@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from psycopg.rows import dict_row
 from psycopg.types.json import Json
 
-from app.authz import can_write, resolve as resolve_authz
+from app.authz import can_write, is_tenant_admin, resolve as resolve_authz
 from app.db import get_conn
 from app.middleware.auth import get_principal, verify_api_key
 
@@ -115,5 +115,22 @@ def update_kb(kb_id: str, body: dict, request: Request):
                 args,
             )
             if cur.rowcount == 0:
+                raise HTTPException(status_code=404, detail="KB_NOT_FOUND")
+    return {"ok": True}
+
+
+@router.delete("/{kb_id}")
+def delete_kb(kb_id: str, request: Request):
+    """删知识库（tenant owner/admin）。CASCADE 清 kb_file_kb 链接 + kb_grant；文件本身保留（在个人库/其它库）。"""
+    principal = get_principal(request)
+    if not is_tenant_admin(principal):
+        raise HTTPException(status_code=403, detail="KB_FORBIDDEN_ADMIN")
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM kb_kb WHERE id=%s AND tenant_id=%s RETURNING 1",
+                (kb_id, principal.tenant_id),
+            )
+            if not cur.fetchone():
                 raise HTTPException(status_code=404, detail="KB_NOT_FOUND")
     return {"ok": True}

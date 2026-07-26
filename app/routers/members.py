@@ -28,26 +28,22 @@ def _require_admin(request: Request):
 
 # ============ 成员 CRUD ============
 @router.get("/users")
-def list_users(department: str | None = None, request: Request = None):
+def list_users(department: str | None = None, group: str | None = None, request: Request = None):
     p = _require_admin(request)
+    where, args = ["ut.tenant_id = %s"], [p.tenant_id]
+    if department:
+        where.append("ut.department = %s"); args.append(department)
+    if group:
+        where.append("ut.group_name = %s"); args.append(group)
     with get_conn() as conn:
         with conn.cursor(row_factory=dict_row) as cur:
-            if department:
-                cur.execute(
-                    """SELECT u.id, u.external_id, u.name, ut.role, ut.department, u.created_at
-                       FROM kb_user u JOIN kb_user_tenant ut ON ut.user_id = u.id
-                       WHERE ut.tenant_id = %s AND ut.department = %s
-                       ORDER BY ut.department, u.external_id""",
-                    (p.tenant_id, department),
-                )
-            else:
-                cur.execute(
-                    """SELECT u.id, u.external_id, u.name, ut.role, ut.department, u.created_at
-                       FROM kb_user u JOIN kb_user_tenant ut ON ut.user_id = u.id
-                       WHERE ut.tenant_id = %s
-                       ORDER BY ut.department NULLS LAST, u.external_id""",
-                    (p.tenant_id,),
-                )
+            cur.execute(
+                f"""SELECT u.id, u.external_id, u.name, ut.role, ut.department, ut.group_name, u.created_at
+                   FROM kb_user u JOIN kb_user_tenant ut ON ut.user_id = u.id
+                   WHERE {' AND '.join(where)}
+                   ORDER BY ut.department NULLS LAST, ut.group_name NULLS LAST, u.external_id""",
+                args,
+            )
             rows = cur.fetchall()
     # 各成员可见库数（授权 + 角色派生）
     out = []
@@ -59,6 +55,7 @@ def list_users(department: str | None = None, request: Request = None):
             "name": r["name"],
             "role": r["role"],
             "department": r["department"],
+            "groupName": r["group_name"],
             "kbCount": len(kbs),
             "createdAt": r["created_at"].isoformat() if r["created_at"] else None,
         })
@@ -73,6 +70,19 @@ def list_departments(request: Request):
         with conn.cursor() as cur:
             cur.execute(
                 "SELECT DISTINCT department FROM kb_user_tenant WHERE tenant_id=%s AND department IS NOT NULL ORDER BY department",
+                (p.tenant_id,),
+            )
+            return [r[0] for r in cur.fetchall()]
+
+
+@router.get("/users/groups")
+def list_groups(request: Request):
+    """列出本租户出现过的小组（筛选用）。"""
+    p = _require_admin(request)
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT DISTINCT group_name FROM kb_user_tenant WHERE tenant_id=%s AND group_name IS NOT NULL ORDER BY group_name",
                 (p.tenant_id,),
             )
             return [r[0] for r in cur.fetchall()]
@@ -101,10 +111,11 @@ def create_user(body: dict, request: Request):
             )
             uid = str(cur.fetchone()[0])
             cur.execute(
-                """INSERT INTO kb_user_tenant(user_id, tenant_id, role, department)
-                   VALUES (%s,%s,%s,%s)
-                   ON CONFLICT (user_id, tenant_id) DO UPDATE SET role=EXCLUDED.role, department=EXCLUDED.department""",
-                (uid, p.tenant_id, role, body.get("department")),
+                """INSERT INTO kb_user_tenant(user_id, tenant_id, role, department, group_name)
+                   VALUES (%s,%s,%s,%s,%s)
+                   ON CONFLICT (user_id, tenant_id) DO UPDATE SET role=EXCLUDED.role,
+                   department=EXCLUDED.department, group_name=EXCLUDED.group_name""",
+                (uid, p.tenant_id, role, body.get("department"), body.get("group")),
             )
             cur.execute(
                 """INSERT INTO kb_api_key(id, tenant_id, user_id, key_hash, scopes)
@@ -122,6 +133,8 @@ def update_user(user_id: str, body: dict, request: Request):
     tenant_sets, args = [], []
     if "department" in body:
         tenant_sets.append("department=%s"); args.append(body["department"])
+    if "group" in body:
+        tenant_sets.append("group_name=%s"); args.append(body["group"])
     if "role" in body:
         if body["role"] not in _ROLES:
             raise HTTPException(status_code=400, detail="KB_VALIDATION")
@@ -242,3 +255,73 @@ def bulk_grant(user_id: str, body: dict, request: Request):
                 )
     audit("MEMBER_GRANT", request, result="ok", detail={"user_id": user_id, "kb_count": len(kb_ids)})
     return {"ok": True, "granted": len(kb_ids)}
+
+
+# ============ 多维度批量授权（部门 / 小组 / 成员）============
+def _resolve_targets(tenant_id, department, group, user_ids):
+    """按 部门 AND 小组 过滤的成员 ∪ 显式 userIds。返回 [{user_id, external_id, name, department, group_name}]。"""
+    where = ["ut.tenant_id = %s"]
+    args = [tenant_id]
+    if department:
+        where.append("ut.department = %s"); args.append(department)
+    if group:
+        where.append("ut.group_name = %s"); args.append(group)
+    matched: list[dict] = []
+    with get_conn() as conn:
+        with conn.cursor(row_factory=dict_row) as cur:
+            if department or group:
+                cur.execute(
+                    f"""SELECT ut.user_id, u.external_id, u.name, ut.department, ut.group_name
+                       FROM kb_user_tenant ut JOIN kb_user u ON u.id = ut.user_id
+                       WHERE {' AND '.join(where)}""",
+                    args,
+                )
+                matched = list(cur.fetchall())
+            if user_ids:
+                cur.execute(
+                    """SELECT ut.user_id, u.external_id, u.name, ut.department, ut.group_name
+                       FROM kb_user_tenant ut JOIN kb_user u ON u.id = ut.user_id
+                       WHERE ut.tenant_id = %s AND ut.user_id = ANY(%s)""",
+                    (tenant_id, user_ids),
+                )
+                for r in cur.fetchall():
+                    if not any(str(m["user_id"]) == str(r["user_id"]) for m in matched):
+                        matched.append(r)
+    return matched
+
+
+@router.post("/grant-bulk")
+def grant_bulk(body: dict, request: Request):
+    """多维度批量授权：{kbIds:[], role="viewer", department?, group?, userIds?, dryRun?}。
+    目标 = (部门 AND 小组 过滤) ∪ 显式成员。dryRun=True 只返匹配成员不授权。"""
+    p = _require_admin(request)
+    role = body.get("role", "viewer")
+    if role not in ("viewer", "editor", "admin"):
+        raise HTTPException(status_code=400, detail="KB_VALIDATION")
+    kb_ids = body.get("kbIds") or []
+    if not kb_ids:
+        raise HTTPException(status_code=400, detail="KB_VALIDATION")
+    targets = _resolve_targets(p.tenant_id, body.get("department"), body.get("group"), body.get("userIds"))
+    users = [{
+        "userId": str(t["user_id"]), "externalId": t["external_id"], "name": t["name"],
+        "department": t["department"], "groupName": t["group_name"],
+    } for t in targets]
+    if body.get("dryRun"):
+        return {"dryRun": True, "users": users}
+    if not targets:
+        return {"granted": 0, "users": []}
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            for t in targets:
+                uid = str(t["user_id"])
+                for kb_id in kb_ids:
+                    cur.execute(
+                        """INSERT INTO kb_grant(grant_id,kb_id,user_id,role,granted_by,source)
+                           VALUES (%s,%s,%s,%s,%s,'explicit')
+                           ON CONFLICT (kb_id,user_id) DO UPDATE
+                           SET role=EXCLUDED.role, revoked_at=NULL, granted_by=EXCLUDED.granted_by""",
+                        (str(uuid.uuid4()), kb_id, uid, role, p.user_id),
+                    )
+    audit("GRANT_BULK", request, result="ok",
+          detail={"users": len(targets), "kb_count": len(kb_ids), "department": body.get("department"), "group": body.get("group")})
+    return {"granted": len(targets), "users": users}

@@ -23,10 +23,12 @@ CREATE TABLE IF NOT EXISTS kb_user_tenant (
   tenant_id UUID NOT NULL REFERENCES kb_tenant(id) ON DELETE CASCADE,
   role VARCHAR(24) NOT NULL DEFAULT 'viewer',       -- owner|admin|editor|viewer（RBAC 租户内粗粒度）
   department VARCHAR(64),                           -- 部门标签（成员管理筛选用；非组级 ACL）
+  group_name VARCHAR(64),                           -- 小组标签（部门下的子分组；筛选/批量授权用）
   PRIMARY KEY (user_id, tenant_id)
 );
 ALTER TABLE kb_user ADD COLUMN IF NOT EXISTS name VARCHAR(128);          -- 已存库升级
 ALTER TABLE kb_user_tenant ADD COLUMN IF NOT EXISTS department VARCHAR(64);
+ALTER TABLE kb_user_tenant ADD COLUMN IF NOT EXISTS group_name VARCHAR(64);
 
 CREATE TABLE IF NOT EXISTS kb_api_key (
   id UUID PRIMARY KEY,
