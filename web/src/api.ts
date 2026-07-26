@@ -29,6 +29,8 @@ export const createKb = (body: { name: string; description?: string; visibility?
   api.post<KB>("/v1/kbs", body).then((r) => r.data);
 export const updateKb = (id: string, body: Partial<{ name: string; description: string; visibility: string; parserConfig: ParserConfig | null }>) =>
   api.patch<{ ok: boolean }>(`/v1/kbs/${id}`, body).then((r) => r.data);
+export const deleteKb = (id: string) =>
+  api.delete<{ ok: boolean }>(`/v1/kbs/${id}`).then((r) => r.data);
 export const getParserMethods = () =>
   api.get<ParserMethod[]>("/v1/parser/methods").then((r) => r.data);
 
@@ -121,13 +123,27 @@ export const revoke = (kbId: string, userId: string) =>
   api.delete("/v1/acl", { data: { kbId, userId } }).then((r) => r.data);
 
 // ---- 成员管理（/v1/admin/users，admin）----
-export const listUsers = (department?: string) =>
-  api.get<Member[]>("/v1/admin/users", { params: department ? { department } : {} }).then((r) => r.data);
+export const listUsers = (department?: string, group?: string) =>
+  api.get<Member[]>("/v1/admin/users", { params: { department, group } }).then((r) => r.data);
 export const listDepartments = () =>
   api.get<string[]>("/v1/admin/users/departments").then((r) => r.data);
+export const listGroups = () =>
+  api.get<string[]>("/v1/admin/users/groups").then((r) => r.data);
+export interface GrantBulkScope {
+  kbIds: string[];
+  role?: string;
+  department?: string;
+  group?: string;
+  userIds?: string[];
+  dryRun?: boolean;
+}
+export const grantBulk = (body: GrantBulkScope) =>
+  api.post<{ dryRun?: boolean; granted?: number; users: { userId: string; externalId: string; name?: string | null }[] }>(
+    "/v1/admin/grant-bulk", body
+  ).then((r) => r.data);
 export const createUser = (body: { externalId: string; name?: string; department?: string; role?: string }) =>
   api.post<{ userId: string; apiKey: string }>("/v1/admin/users", body).then((r) => r.data);
-export const updateUser = (id: string, body: { name?: string; department?: string; role?: string }) =>
+export const updateUser = (id: string, body: { name?: string; department?: string; group?: string; role?: string }) =>
   api.patch(`/v1/admin/users/${id}`, body).then((r) => r.data);
 export const deleteUser = (id: string) =>
   api.delete(`/v1/admin/users/${id}`).then((r) => r.data);

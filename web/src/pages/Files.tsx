@@ -6,6 +6,7 @@ import { listFiles, uploadToDrive, deleteFile, renameFile, attachFile, listKbs }
 import type { DriveFile, ParserConfig } from "../types";
 import type { UploadProps } from "antd";
 import ParserConfigFields from "../components/ParserConfigFields";
+import { usePageSize, paginationProps } from "../usePageSize";
 
 const fmtSize = (b: number | null) =>
   b == null ? "-" : b < 1024 ? `${b} B` : b < 1048576 ? `${(b / 1024).toFixed(1)} KB` : `${(b / 1048576).toFixed(1)} MB`;
@@ -20,6 +21,7 @@ export default function Files() {
   const [pcfg, setPcfg] = useState<ParserConfig>({ method: "" });
   const [renameTarget, setRenameTarget] = useState<DriveFile | null>(null);
   const [newName, setNewName] = useState("");
+  const [pageSize, setPageSize] = usePageSize();
 
   const upload = useMutation({
     mutationFn: (f: File) => uploadToDrive(f),
@@ -89,6 +91,7 @@ export default function Files() {
         rowKey="fileId"
         loading={isLoading}
         dataSource={data}
+        pagination={paginationProps(pageSize, setPageSize)}
         rowSelection={{ selectedRowKeys: selected, onChange: (keys) => setSelected(keys.map(String)) }}
         columns={[
           { title: "名称", dataIndex: "name" },

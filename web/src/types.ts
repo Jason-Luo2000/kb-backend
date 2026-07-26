@@ -110,6 +110,7 @@ export interface Member {
   name?: string | null;
   role: string;
   department?: string | null;
+  groupName?: string | null;
   kbCount: number;
   createdAt?: string | null;
 }
