@@ -42,6 +42,11 @@ export default function Members() {
   const [preview, setPreview] = useState<{ userId: string; externalId: string; name?: string | null }[] | null>(null);
   const [pageSize, setPageSize] = usePageSize();
 
+  // 选择式批量管理（编辑属性 / 删除）
+  const [selected, setSelected] = useState<string[]>([]);
+  const [editOpen, setEditOpen] = useState(false);
+  const [editForm] = Form.useForm();
+
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: ["users"] });
     qc.invalidateQueries({ queryKey: ["departments"] });
@@ -75,6 +80,22 @@ export default function Members() {
     mutationFn: () => grantBulk({ kbIds: bKbs, role: bRole, department: bDept, group: bGroup, userIds: bUids }),
     onSuccess: (d) => { message.success(`已授权 ${d.granted} 人`); setBatchOpen(false); setPreview(null); invalidate(); },
   });
+  // 批量编辑属性（部门/小组/角色）+ 批量删除：逐个 PATCH/DELETE
+  const batchUpdate = useMutation({
+    mutationFn: async (body: { department?: string; group?: string; role?: string }) =>
+      Promise.all(selected.map((id) => updateUser(id, body))),
+    onSuccess: () => { message.success(`已更新 ${selected.length} 人`); setEditOpen(false); setSelected([]); invalidate(); },
+  });
+  const batchDelete = useMutation({
+    mutationFn: async () => {
+      const results = await Promise.allSettled(selected.map((id) => deleteUser(id)));
+      return { ok: results.filter((r) => r.status === "fulfilled").length, total: selected.length };
+    },
+    onSuccess: (r) => {
+      message.success(`已移除 ${r.ok}/${r.total}${r.ok < r.total ? "（其余失败：可能含不可删的管理员）" : ""}`);
+      setSelected([]); invalidate();
+    },
+  });
 
   const openCreate = () => { setEditing(null); form.resetFields(); form.setFieldsValue({ role: "viewer" }); setOpen(true); };
   const openEdit = (m: Member) => { setEditing(m); form.setFieldsValue({ externalId: m.externalId, name: m.name, department: m.department, group: m.groupName, role: m.role }); setOpen(true); };
@@ -100,11 +121,27 @@ export default function Members() {
         <Button icon={<ReloadOutlined />} onClick={() => invalidate()}>刷新</Button>
       </Space>
 
+      {selected.length > 0 && (
+        <Space style={{ marginBottom: 12 }}>
+          <Typography.Text type="secondary">已选 {selected.length} 人</Typography.Text>
+          <Button onClick={() => { editForm.resetFields(); setEditOpen(true); }}>批量编辑（部门/小组/角色）</Button>
+          <Popconfirm title={`移除 ${selected.length} 个成员？`} onConfirm={() => batchDelete.mutate()}>
+            <Button danger loading={batchDelete.isPending}>批量移除</Button>
+          </Popconfirm>
+          <Button onClick={() => setSelected([])}>取消选择</Button>
+        </Space>
+      )}
+
       <Table<Member>
         rowKey="userId"
         loading={isLoading}
         dataSource={users}
         pagination={paginationProps(pageSize, setPageSize)}
+        rowSelection={{
+          selectedRowKeys: selected,
+          onChange: (keys) => setSelected(keys.map(String)),
+          getCheckboxProps: (r: Member) => ({ disabled: r.role === "owner" }),  // owner（含自己）不可选入批量
+        }}
         columns={[
           { title: "账号", render: (_: unknown, r: Member) => <div>{r.name || r.externalId}<br /><Typography.Text type="secondary" style={{ fontSize: 12 }}>{r.externalId}</Typography.Text></div> },
           { title: "部门", dataIndex: "department", width: 110, render: (d) => d ? <Tag color="cyan">{d}</Tag> : <Typography.Text type="secondary">—</Typography.Text> },
@@ -234,6 +271,32 @@ export default function Members() {
             </div>
           </>
         )}
+      </Modal>
+
+      {/* 批量编辑属性（部门/小组/角色，仅更新填写项）*/}
+      <Modal
+        title={`批量编辑（${selected.length} 人）`}
+        open={editOpen}
+        onCancel={() => setEditOpen(false)}
+        onOk={() => editForm.validateFields().then((v) => {
+          const body: { department?: string; group?: string; role?: string } = {};
+          if (v.department) body.department = v.department;
+          if (v.group) body.group = v.group;
+          if (v.role) body.role = v.role;
+          if (!body.department && !body.group && !body.role) { message.warning("未填写任何字段"); return; }
+          batchUpdate.mutate(body);
+        })}
+        confirmLoading={batchUpdate.isPending}
+        okText={`应用到 ${selected.length} 人`}
+      >
+        <Alert type="info" showIcon style={{ marginBottom: 12 }} message="仅更新你填写的字段，留空 / 选「不改」表示不改动。" />
+        <Form form={editForm} layout="vertical">
+          <Form.Item name="department" label="部门"><Input placeholder="不改" /></Form.Item>
+          <Form.Item name="group" label="小组"><Input placeholder="不改" /></Form.Item>
+          <Form.Item name="role" label="租户角色">
+            <Select options={[{ value: "", label: "不改" }, { value: "viewer" }, { value: "editor" }, { value: "admin" }]} />
+          </Form.Item>
+        </Form>
       </Modal>
     </>
   );
