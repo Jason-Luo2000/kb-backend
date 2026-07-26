@@ -1,4 +1,4 @@
-import { Layout as AntLayout, Menu, Avatar, Dropdown, Typography, Spin } from "antd";
+import { Layout as AntLayout, Menu, Avatar, Dropdown, Typography, Spin, Tag } from "antd";
 import { useNavigate, Navigate, Outlet, useLocation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -41,8 +41,8 @@ export default function Layout() {
     { key: "/chat", icon: <MessageOutlined />, label: "问答" },
   ];
   if (me.is_admin) items.push({ key: "/acl", icon: <SafetyOutlined />, label: "授权" });
-  if (me.is_owner) items.push({ key: "/models", icon: <RobotOutlined />, label: "模型" });
   if (me.is_owner) {
+    items.push({ key: "/models", icon: <RobotOutlined />, label: "模型" });
     items.push({ key: "/ops", icon: <ControlOutlined />, label: "运维" });
     items.push({ key: "/monitor", icon: <DashboardOutlined />, label: "监控" });
   }
@@ -50,34 +50,47 @@ export default function Layout() {
 
   return (
     <AntLayout style={{ minHeight: "100vh" }}>
-      <Sider collapsible breakpoint="lg">
-        <div style={{ color: "#fff", padding: 16, textAlign: "center", fontWeight: 600 }}>kb 控制台</div>
+      <Sider className="kb-sider" collapsible breakpoint="lg" theme="dark" width={224}>
+        <div className="kb-brand">
+          <div className="kb-brand-mark">KB</div>
+          <div>
+            <div className="kb-brand-text">kb 控制台</div>
+            <div className="kb-brand-sub">Dual-Path RAG</div>
+          </div>
+        </div>
         <Menu theme="dark" mode="inline" selectedKeys={[selected]} items={items} onClick={({ key }) => nav(key)} />
       </Sider>
       <AntLayout>
-        <Header style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", background: "#fff", padding: "0 24px" }}>
-          <Typography.Text type="secondary" style={{ marginRight: 12 }}>
-            {me.user_id} {me.is_owner ? "· owner" : me.is_admin ? "· admin" : ""}
+        <Header className="kb-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0 24px" }}>
+          <Typography.Text style={{ color: "#8aa0c0", letterSpacing: 1, fontSize: 13 }}>
+            {/* 面包屑占位：当前模块 */}
+            {items.find((i) => i.key === selected)?.label || ""}
           </Typography.Text>
-          <Dropdown
-            menu={{
-              items: [
-                {
-                  key: "logout",
-                  icon: <LogoutOutlined />,
-                  label: "退出登录",
-                  onClick: () => {
-                    logout();
-                    nav("/login");
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <Tag color={me.is_owner ? "cyan" : me.is_admin ? "blue" : "default"} style={{ margin: 0 }}>
+              {me.is_owner ? "owner" : me.is_admin ? "admin" : "user"}
+            </Tag>
+            <Typography.Text style={{ color: "#cbd5e1" }}>{me.user_id}</Typography.Text>
+            <Dropdown
+              menu={{
+                items: [
+                  {
+                    key: "logout",
+                    icon: <LogoutOutlined />,
+                    label: "退出登录",
+                    onClick: () => {
+                      logout();
+                      nav("/login");
+                    },
                   },
-                },
-              ],
-            }}
-          >
-            <Avatar style={{ cursor: "pointer" }} icon={<UserOutlined />} />
-          </Dropdown>
+                ],
+              }}
+            >
+              <Avatar style={{ cursor: "pointer", background: "linear-gradient(135deg,#22d3ee,#6366f1)" }} icon={<UserOutlined />} />
+            </Dropdown>
+          </div>
         </Header>
-        <Content style={{ margin: 24, padding: 24, background: "#fff", borderRadius: 8 }}>
+        <Content className="kb-fade" style={{ margin: 24 }}>
           <Outlet />
         </Content>
       </AntLayout>

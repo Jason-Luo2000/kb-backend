@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useParams } from "react-router-dom";
 import { Table, Upload, message, Tag, Typography, Button, Collapse, Space, Popconfirm, Modal, Input } from "antd";
-import { InboxOutlined, ReloadOutlined, SettingOutlined } from "@ant-design/icons";
+import { UploadOutlined, ReloadOutlined, SettingOutlined } from "@ant-design/icons";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { listDocs, uploadDoc, removeDocFromKb, reparseDoc, renameDoc, bulkDocs } from "../api";
 import type { Doc, ParserConfig } from "../types";
@@ -73,21 +73,10 @@ export default function Docs() {
     <>
       <Typography.Title level={3}>文档（库 {kbId?.slice(0, 8)}…）</Typography.Title>
       <Typography.Text type="secondary">每个文档可独立设分块方法（点「配置」改方法并重解析）。新文档默认继承知识库配置。</Typography.Text>
-      <Upload.Dragger {...props} style={{ marginTop: 12, marginBottom: 16 }}>
-        <p className="ant-upload-drag-icon"><InboxOutlined /></p>
-        <p>点击或拖拽上传（PDF / DOCX / PPTX / XLSX / HTML / MD）</p>
-      </Upload.Dragger>
-
-      <Collapse
-        style={{ marginBottom: 16 }}
-        items={[{
-          key: "cfg",
-          label: <Space><SettingOutlined /> 本次上传分块设置（默认继承知识库）</Space>,
-          children: <ParserConfigFields value={parseCfg} onChange={setParseCfg} allowInherit />,
-        }]}
-      />
-
-      <Space style={{ marginBottom: 8 }}>
+      <Space style={{ marginTop: 12, marginBottom: 12 }}>
+        <Upload {...props}>
+          <Button type="primary" icon={<UploadOutlined />}>上传文档</Button>
+        </Upload>
         <Button icon={<ReloadOutlined />} onClick={() => qc.invalidateQueries({ queryKey: ["docs", kbId] })}>刷新</Button>
         {selected.length > 0 && (
           <>
@@ -98,6 +87,15 @@ export default function Docs() {
           </>
         )}
       </Space>
+
+      <Collapse
+        style={{ marginBottom: 12 }}
+        items={[{
+          key: "cfg",
+          label: <Space><SettingOutlined /> 本次上传分块设置（默认继承知识库）</Space>,
+          children: <ParserConfigFields value={parseCfg} onChange={setParseCfg} allowInherit />,
+        }]}
+      />
 
       <Table<Doc>
         rowKey="docId"

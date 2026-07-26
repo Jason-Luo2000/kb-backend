@@ -35,7 +35,7 @@ function Stat({ title, value }: { title: string; value: React.ReactNode }) {
   return (
     <Card>
       <Typography.Text type="secondary">{title}</Typography.Text>
-      <h2 style={{ margin: "4px 0 0" }}>{value}</h2>
+      <div className="kb-stat" style={{ marginTop: 6 }}>{value}</div>
     </Card>
   );
 }

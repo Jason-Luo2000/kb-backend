@@ -1,4 +1,5 @@
 import { Card, Form, Input, Button, Typography, message } from "antd";
+import { LockOutlined } from "@ant-design/icons";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 
@@ -14,18 +15,28 @@ export default function Login() {
     }
   };
   return (
-    <div style={{ display: "flex", justifyContent: "center", alignItems: "center", minHeight: "100vh", background: "#f0f2f5" }}>
-      <Card title="kb-backend 控制台登录" style={{ width: 420 }}>
+    <div style={{ display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", minHeight: "100vh", padding: 24 }}>
+      <div className="kb-brand" style={{ padding: 0, marginBottom: 8 }}>
+        <div className="kb-brand-mark" style={{ width: 42, height: 42, fontSize: 20 }}>KB</div>
+        <div>
+          <div className="kb-brand-text" style={{ fontSize: 22 }}>kb 控制台</div>
+          <div className="kb-brand-sub">Dual-Path RAG Console</div>
+        </div>
+      </div>
+      <Card className="kb-glass" style={{ width: 420, backdropFilter: "blur(14px)" }}>
+        <Typography.Title level={4} className="kb-title" style={{ textAlign: "center", marginBottom: 20 }}>
+          登录
+        </Typography.Title>
         <Form onFinish={onFinish} layout="vertical" initialValues={{ apiKey: "kb_dev_api_key" }}>
           <Form.Item name="apiKey" label="API Key" rules={[{ required: true }]}>
-            <Input.Password placeholder="kb_dev_api_key" />
+            <Input.Password prefix={<LockOutlined />} placeholder="kb_dev_api_key" />
           </Form.Item>
-          <Form.Item name="base" label="后端地址（留空=dev proxy :8001）">
+          <Form.Item name="base" label="后端地址（留空 = dev proxy :8001）">
             <Input placeholder="http://localhost:8001" />
           </Form.Item>
-          <Button type="primary" htmlType="submit" block>登录</Button>
-          <Typography.Text type="secondary" style={{ display: "block", marginTop: 12, fontSize: 12 }}>
-            本地开发默认 kb_dev_api_key；后端跑在 :8001，Vite proxy 已配同源。
+          <Button type="primary" htmlType="submit" block size="large">进入控制台</Button>
+          <Typography.Text type="secondary" style={{ display: "block", marginTop: 16, fontSize: 12, textAlign: "center" }}>
+            本地开发默认 <code>kb_dev_api_key</code>；后端 :8001，Vite proxy 同源。
           </Typography.Text>
         </Form>
       </Card>

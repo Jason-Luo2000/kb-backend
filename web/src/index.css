@@ -1,0 +1,209 @@
+/* ===== 深空科技主题：全局样式 ===== */
+
+:root {
+  --kb-bg: #0a0e1a;
+  --kb-accent: #22d3ee;
+  --kb-accent-2: #6366f1;
+  --kb-text: #e2e8f0;
+  --kb-text-dim: #8aa0c0;
+  --kb-border: rgba(148, 163, 184, 0.16);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background-color: var(--kb-bg);
+  /* 深空底 + 顶部青蓝辉光 + 右上紫蓝辉光 */
+  background-image:
+    radial-gradient(1200px 600px at 12% -8%, rgba(34, 211, 238, 0.16), transparent 60%),
+    radial-gradient(1000px 700px at 100% 0%, rgba(99, 102, 241, 0.16), transparent 55%),
+    radial-gradient(900px 800px at 50% 120%, rgba(34, 211, 238, 0.06), transparent 60%),
+    linear-gradient(180deg, #0a0e1a 0%, #070b16 100%);
+  background-attachment: fixed;
+  color: var(--kb-text);
+  font-feature-settings: "tnum" 1, "cv01" 1;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* 极淡科技网格纹理（不喧宾夺主）*/
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background-image:
+    linear-gradient(rgba(148, 163, 184, 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(148, 163, 184, 0.035) 1px, transparent 1px);
+  background-size: 44px 44px;
+  mask-image: radial-gradient(ellipse 80% 60% at 50% 40%, #000 40%, transparent 100%);
+}
+
+#root {
+  position: relative;
+  z-index: 1;
+}
+
+/* ===== 滚动条 ===== */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, rgba(34, 211, 238, 0.4), rgba(99, 102, 241, 0.4));
+  border-radius: 8px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, rgba(34, 211, 238, 0.7), rgba(99, 102, 241, 0.7));
+  background-clip: padding-box;
+}
+
+/* ===== 玻璃拟态卡片（侧栏/顶栏/浮层用）===== */
+.kb-glass {
+  background: rgba(15, 23, 41, 0.55);
+  backdrop-filter: blur(14px) saturate(140%);
+  -webkit-backdrop-filter: blur(14px) saturate(140%);
+  border: 1px solid var(--kb-border);
+}
+
+/* 侧栏：渐变描边 + 底部辉光 */
+.kb-sider {
+  background: linear-gradient(180deg, rgba(15, 23, 41, 0.85) 0%, rgba(7, 11, 22, 0.92) 100%) !important;
+  border-right: 1px solid var(--kb-border);
+  box-shadow: 1px 0 40px rgba(34, 211, 238, 0.05);
+}
+
+/* 顶栏 */
+.kb-header {
+  background: rgba(10, 14, 26, 0.55) !important;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--kb-border);
+}
+
+/* 品牌标志 */
+.kb-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 18px 18px 14px;
+}
+.kb-brand-mark {
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  background: linear-gradient(135deg, #22d3ee 0%, #6366f1 100%);
+  box-shadow: 0 0 18px rgba(34, 211, 238, 0.55);
+  display: grid;
+  place-items: center;
+  font-weight: 800;
+  color: #06121a;
+  font-size: 16px;
+}
+.kb-brand-text {
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  font-size: 15px;
+  background: linear-gradient(90deg, #e2e8f0, #67e8f9);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.kb-brand-sub {
+  font-size: 10px;
+  color: var(--kb-text-dim);
+  letter-spacing: 2px;
+  text-transform: uppercase;
+}
+
+/* 大数字统计（监控/卡片用）*/
+.kb-stat {
+  font-size: 30px;
+  font-weight: 700;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+  background: linear-gradient(90deg, #67e8f9, #818cf8);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* 页面主标题 */
+.kb-title {
+  margin: 0 !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.3px;
+}
+
+/* 内容区淡入 */
+.kb-fade {
+  animation: kbFadeIn 0.35s ease both;
+}
+@keyframes kbFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* 让 AntD Card 表现出玻璃感 + 悬浮微抬 */
+.ant-card {
+  backdrop-filter: blur(6px);
+  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+}
+.ant-card:hover {
+  border-color: rgba(34, 211, 238, 0.35) !important;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(34, 211, 238, 0.1);
+}
+
+/* 主按钮辉光 */
+.ant-btn-primary {
+  background: linear-gradient(135deg, #22d3ee 0%, #6366f1 100%) !important;
+  border: none !important;
+  box-shadow: 0 4px 14px rgba(34, 211, 238, 0.25);
+}
+.ant-btn-primary:hover {
+  box-shadow: 0 6px 20px rgba(34, 211, 238, 0.45) !important;
+  filter: brightness(1.08);
+}
+
+/* 表格行下边线更轻、表头字间距 */
+.ant-table-thead > tr > th {
+  letter-spacing: 0.4px;
+  font-weight: 600 !important;
+  text-transform: none;
+}
+
+/* 菜单选中项左侧辉光条 */
+.ant-menu-dark .ant-menu-item-selected {
+  position: relative;
+}
+.ant-menu-dark .ant-menu-item-selected::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 18%;
+  bottom: 18%;
+  width: 3px;
+  border-radius: 3px;
+  background: linear-gradient(180deg, #22d3ee, #6366f1);
+  box-shadow: 0 0 10px rgba(34, 211, 238, 0.7);
+}
