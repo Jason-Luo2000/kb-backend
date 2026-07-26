@@ -1,6 +1,14 @@
 """检索：双路召回 / 引用 / RAG 问答。T9：透传 principal，cite chunk 回查收敛到租户+授权 kb。"""
+import json
+
 from fastapi import APIRouter, Depends, HTTPException, Request
 from psycopg.rows import dict_row
+from psycopg.types.json import Json
+
+
+def _json_dumps(obj):
+    """SQL_ASCII 兼容：JSONB 用 ensure_ascii=False（原始 UTF-8 字节），避免 \\uXXXX 转义被服务端拒。"""
+    return json.dumps(obj, ensure_ascii=False)
 
 from app.authz import resolve as resolve_authz
 from app.db import get_conn
@@ -19,6 +27,35 @@ def _log_chat(tenant_id, user_id, query, answer, model, outcome, hits, latency_m
                     """INSERT INTO kb_chat_log(tenant_id,user_id,query,answer,model,outcome,hits,latency_ms)
                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s)""",
                     (tenant_id, user_id, query, answer, model, outcome, hits, latency_ms),
+                )
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _persist_turn(conv_id, user_id, query, gen, route_stats):
+    """会话持久化（/v1/chat 带 conversationId 时）：追加 user+assistant 消息、更新会话时间、
+    首轮自动用 query 命名标题。所有权校验（user_id）。best-effort，不阻塞。"""
+    try:
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT 1 FROM kb_conversation WHERE id=%s AND user_id=%s", (conv_id, user_id))
+                if not cur.fetchone():
+                    return
+                cur.execute(
+                    "INSERT INTO kb_message(conversation_id, role, content) VALUES (%s,'user',%s)",
+                    (conv_id, query),
+                )
+                meta = {"references": gen["references"], "route_stats": route_stats,
+                        "model": gen["model"], "error": gen["error"]}
+                cur.execute(
+                    """INSERT INTO kb_message(conversation_id, role, content, meta)
+                       VALUES (%s,'assistant',%s,%s)""",
+                    (conv_id, gen["answer"], Json(meta, dumps=_json_dumps)),
+                )
+                cur.execute(
+                    """UPDATE kb_conversation SET updated_at=now(),
+                       title=COALESCE(title, %s) WHERE id=%s""",
+                    (query[:30], conv_id),
                 )
     except Exception:  # noqa: BLE001
         pass
@@ -94,16 +131,21 @@ def chat(request: Request, body: dict):
     _log_chat(principal.tenant_id, principal.user_id, query, gen["answer"], gen["model"],
               "error" if gen["error"] else ("no_result" if not merged else "answered"),
               len(merged), meta["latency_ms"])
+    route_stats = {k: meta[k] for k in (
+        "path_a", "path_b", "degraded", "rerank_used", "latency_ms",
+        "path_a_completed_rate", "path_a_degraded_reason")}
+    conv_id = body.get("conversationId")
+    if conv_id:
+        _persist_turn(conv_id, principal.user_id, query, gen, route_stats)
     return {
         "answer": gen["answer"],
         "references": gen["references"],
         "hits": [orchestrator._hit_view(h) for h in merged],
-        "route_stats": {k: meta[k] for k in (
-            "path_a", "path_b", "degraded", "rerank_used", "latency_ms",
-            "path_a_completed_rate", "path_a_degraded_reason")},
+        "route_stats": route_stats,
         "model": gen["model"],
         "error": gen["error"],
     }
+
 
 
 @router.post("/cite")

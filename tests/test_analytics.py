@@ -109,3 +109,23 @@ def test_user_chats_records_answer(monkeypatch):
             assert row["outcome"] == "answered"
         finally:
             c.delete(f"/v1/files/{doc}", headers=AUTH)
+
+
+def test_admin_user_conversations_grouped(monkeypatch):
+    """管理员按会话(session)查看某成员的历史：会话列表 + 每个会话的消息。"""
+    monkeypatch.setattr("app.adapters.llm.generate", _fake_generate)
+    with TestClient(app) as c:
+        kid, doc = _kb_with_doc(c)
+        me = c.get("/v1/me", headers=AUTH).json()
+        try:
+            cid = c.post("/v1/chat/conversations", headers=AUTH, json={"title": "会话A"}).json()["id"]
+            c.post("/v1/chat", headers=AUTH, json={"query": "Q1", "knowledgeBaseIds": [kid], "conversationId": cid})
+            c.post("/v1/chat", headers=AUTH, json={"query": "Q2", "knowledgeBaseIds": [kid], "conversationId": cid})
+            convs = c.get(f"/v1/admin/analytics/users/{me['user_id']}/conversations", headers=AUTH).json()
+            row = next((x for x in convs if x["id"] == cid), None)
+            assert row and row["title"] == "会话A"
+            assert len(row["messages"]) == 4  # user/assistant × 2
+            assert row["messages"][0]["role"] == "user" and row["messages"][0]["content"] == "Q1"
+            assert row["messages"][1]["role"] == "assistant" and "42" in (row["messages"][1]["content"] or "")
+        finally:
+            c.delete(f"/v1/files/{doc}", headers=AUTH)

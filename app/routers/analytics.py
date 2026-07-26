@@ -132,3 +132,34 @@ def user_chats(user_id: str, days: int = 30, limit: int = 50, request: Request =
         "id": r[0], "query": r[1], "answer": r[2], "model": r[3], "outcome": r[4],
         "hits": r[5], "latencyMs": r[6], "createdAt": r[7].isoformat() if r[7] else None,
     } for r in rows]
+
+
+@router.get("/users/{user_id}/conversations")
+def user_conversations(user_id: str, limit: int = 30, request: Request = None):
+    """管理员查看某成员的**会话**（按 session 分组，含消息）。tenant 隔离：仅本租户该用户。"""
+    p = _require_admin(request)
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """SELECT id, title, updated_at FROM kb_conversation
+                   WHERE user_id=%s AND tenant_id=%s ORDER BY updated_at DESC LIMIT %s""",
+                (user_id, p.tenant_id, limit),
+            )
+            convs = cur.fetchall()
+            out = []
+            for cid, title, updated_at in convs:
+                cur.execute(
+                    """SELECT role, content, meta, created_at FROM kb_message
+                       WHERE conversation_id=%s ORDER BY id""",
+                    (cid,),
+                )
+                msgs = [{
+                    "role": r[0], "content": r[1], "meta": r[2],
+                    "createdAt": r[3].isoformat() if r[3] else None,
+                } for r in cur.fetchall()]
+                out.append({
+                    "id": str(cid), "title": title or "新对话",
+                    "updatedAt": updated_at.isoformat() if updated_at else None,
+                    "messages": msgs,
+                })
+    return out

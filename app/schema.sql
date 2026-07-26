@@ -283,6 +283,27 @@ CREATE INDEX IF NOT EXISTS idx_chatlog_tenant_time ON kb_chat_log(tenant_id, cre
 CREATE INDEX IF NOT EXISTS idx_chatlog_user_time ON kb_chat_log(user_id, created_at DESC);
 ALTER TABLE kb_chat_log ADD COLUMN IF NOT EXISTS answer TEXT;  -- 已存库升级
 
+-- ============ 问答会话（用户级，多会话 + 持久化历史）============
+CREATE TABLE IF NOT EXISTS kb_conversation (
+  id UUID PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES kb_tenant(id) ON DELETE CASCADE,
+  user_id UUID NOT NULL REFERENCES kb_user(id) ON DELETE CASCADE,
+  title VARCHAR(256),
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_conv_user_time ON kb_conversation(user_id, updated_at DESC);
+
+CREATE TABLE IF NOT EXISTS kb_message (
+  id BIGSERIAL PRIMARY KEY,
+  conversation_id UUID NOT NULL REFERENCES kb_conversation(id) ON DELETE CASCADE,
+  role VARCHAR(16) NOT NULL,                -- user | assistant
+  content TEXT,
+  meta JSONB,                               -- references/route_stats/model/error（assistant 用）
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_msg_conv ON kb_message(conversation_id, id);
+
 -- ============ 模型 provider 注册表（M：多 provider 模型配置）============
 -- tenant_id NULL = 系统内置（env 种子，bootstrap 启动种）；租户行覆盖系统行。
 -- kind: llm | embedding | rerank；provider_type: openai | anthropic | zhipu | local | gemini
