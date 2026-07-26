@@ -150,6 +150,20 @@ export interface ChatRecord {
   createdAt: string | null;
 }
 
+// ---- 问答会话（用户级历史）----
+export interface Conversation {
+  id: string;
+  title: string;
+  updatedAt: string | null;
+  preview: string;
+}
+export interface ConvMessage {
+  role: "user" | "assistant";
+  content: string | null;
+  meta: { references?: Reference[]; route_stats?: RouteStats; model?: string | null; error?: string | null } | null;
+  createdAt: string | null;
+}
+
 export interface ReadAnchorResult {
   docId: string;
   anchor: string;

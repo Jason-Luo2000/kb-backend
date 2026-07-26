@@ -207,3 +207,73 @@ body::before {
   background: linear-gradient(180deg, #22d3ee, #6366f1);
   box-shadow: 0 0 10px rgba(34, 211, 238, 0.7);
 }
+
+/* ===== 对话流（RAGFlow 式）===== */
+.kb-chat-row {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 20px;
+  align-items: flex-start;
+}
+.kb-chat-row.user {
+  justify-content: flex-end;
+}
+.kb-chat-bubble {
+  max-width: 70%;
+  padding: 10px 14px;
+  border-radius: 12px;
+  font-size: 14px;
+  line-height: 1.65;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.kb-chat-bubble.user {
+  background: rgba(34, 211, 238, 0.14);
+  border: 1px solid rgba(34, 211, 238, 0.30);
+  border-top-right-radius: 4px;
+}
+.kb-chat-ans {
+  max-width: 82%;
+  font-size: 14px;
+  line-height: 1.7;
+}
+.kb-chat-ans p {
+  margin: 0 0 8px;
+}
+.kb-chat-ans p:last-child {
+  margin-bottom: 0;
+}
+.kb-chat-meta {
+  font-size: 11px;
+  color: #6b7a93;
+  margin-top: 6px;
+}
+.kb-chat-meta .ant-tag {
+  margin-right: 4px;
+  font-size: 11px;
+  padding: 0 6px;
+  line-height: 18px;
+}
+.kb-ref-chip {
+  display: inline-flex;
+  align-items: center;
+  margin: 6px 6px 0 0;
+  padding: 1px 8px;
+  border-radius: 10px;
+  background: rgba(99, 102, 241, 0.16);
+  border: 1px solid rgba(99, 102, 241, 0.3);
+  color: #c7d2fe;
+  font-size: 12px;
+  cursor: pointer;
+}
+.kb-ref-chip:hover {
+  background: rgba(99, 102, 241, 0.28);
+}
+.kb-avatar-bot {
+  background: linear-gradient(135deg, #6366f1, #22d3ee) !important;
+  flex-shrink: 0;
+}
+.kb-avatar-user {
+  background: linear-gradient(135deg, #22d3ee, #6366f1) !important;
+  flex-shrink: 0;
+}

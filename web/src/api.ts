@@ -23,6 +23,8 @@ import type {
   UserKb,
   UserUsage,
   ChatRecord,
+  Conversation,
+  ConvMessage,
 } from "./types";
 
 // ---- 身份 ----
@@ -118,7 +120,20 @@ export interface ChatParams {
   mode?: string;
   cite?: boolean;
   history?: { role: "user" | "assistant"; content: string }[];
+  conversationId?: string;
 }
+
+// ---- 问答会话（用户级历史）----
+export const listConversations = () =>
+  api.get<Conversation[]>("/v1/chat/conversations").then((r) => r.data);
+export const createConversation = (title?: string) =>
+  api.post<{ id: string; title: string | null }>("/v1/chat/conversations", { title }).then((r) => r.data);
+export const getConversation = (id: string) =>
+  api.get<{ id: string; title: string | null; messages: ConvMessage[] }>(`/v1/chat/conversations/${id}`).then((r) => r.data);
+export const renameConversation = (id: string, title: string) =>
+  api.patch(`/v1/chat/conversations/${id}`, { title }).then((r) => r.data);
+export const deleteConversation = (id: string) =>
+  api.delete(`/v1/chat/conversations/${id}`).then((r) => r.data);
 export const chat = (body: ChatParams) =>
   api.post<ChatResult>("/v1/chat", body).then((r) => r.data);
 
@@ -212,3 +227,7 @@ export const analyticsModels = (days = 7) =>
   api.get<ModelUsage[]>("/v1/admin/analytics/models", { params: { days } }).then((r) => r.data);
 export const userChats = (userId: string, days = 30, limit = 50) =>
   api.get<ChatRecord[]>(`/v1/admin/analytics/users/${userId}/chats`, { params: { days, limit } }).then((r) => r.data);
+export const userConversations = (userId: string, limit = 30) =>
+  api.get<{ id: string; title: string; updatedAt: string | null; messages: ConvMessage[] }[]>(
+    `/v1/admin/analytics/users/${userId}/conversations`, { params: { limit } }
+  ).then((r) => r.data);

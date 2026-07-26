@@ -1,11 +1,11 @@
 import { useState } from "react";
-import { Table, Button, Space, Tag, Typography, Modal, Form, Input, Select, Drawer, Popconfirm, message, Alert, Divider, Empty, Card } from "antd";
+import { Table, Button, Space, Tag, Typography, Modal, Form, Input, Select, Drawer, Popconfirm, message, Alert, Divider, Empty, Card, Collapse } from "antd";
 import { UserAddOutlined, ReloadOutlined, ThunderboltOutlined, MessageOutlined } from "@ant-design/icons";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
-  listUsers, listDepartments, listGroups, createUser, updateUser, deleteUser, userKbs, bulkGrant, revoke, grantBulk, listKbs, userChats,
+  listUsers, listDepartments, listGroups, createUser, updateUser, deleteUser, userKbs, bulkGrant, revoke, grantBulk, listKbs, userConversations,
 } from "../api";
 import type { Member } from "../types";
 import { usePageSize, paginationProps } from "../usePageSize";
@@ -49,12 +49,11 @@ export default function Members() {
   const [editOpen, setEditOpen] = useState(false);
   const [editForm] = Form.useForm();
 
-  // 查看某成员问答记录
+  // 查看某成员问答记录（按会话分组）
   const [chatUser, setChatUser] = useState<Member | null>(null);
-  const [chatDays, setChatDays] = useState(30);
-  const { data: chatHistory } = useQuery({
-    queryKey: ["userChats", chatUser?.userId, chatDays],
-    queryFn: () => userChats(chatUser!.userId, chatDays),
+  const { data: conversations } = useQuery({
+    queryKey: ["userConversations", chatUser?.userId],
+    queryFn: () => userConversations(chatUser!.userId),
     enabled: !!chatUser,
   });
 
@@ -111,7 +110,7 @@ export default function Members() {
   const openCreate = () => { setEditing(null); form.resetFields(); form.setFieldsValue({ role: "viewer" }); setOpen(true); };
   const openEdit = (m: Member) => { setEditing(m); form.setFieldsValue({ externalId: m.externalId, name: m.name, department: m.department, group: m.groupName, role: m.role }); setOpen(true); };
   const openKbs = (m: Member) => { setKbUser(m); setGrantKbs([]); setGrantRole("viewer"); };
-  const openChats = (m: Member) => { setChatUser(m); setChatDays(30); };
+  const openChats = (m: Member) => { setChatUser(m); };
   const openBatch = () => { setBatchOpen(true); setBKbs([]); setBRole("viewer"); setBDept(undefined); setBGroup(undefined); setBUids([]); setPreview(null); };
 
   return (
@@ -312,41 +311,47 @@ export default function Members() {
         </Form>
       </Modal>
 
-      {/* 问答记录（管理员查看某成员的提问 + 答案）*/}
+      {/* 问答记录（管理员按会话查看某成员的提问 + 答案）*/}
       <Drawer
         title={<Space>{chatUser?.name || chatUser?.externalId}<span style={{ color: "#8aa0c0", fontSize: 12 }}>的问答记录</span></Space>}
-        open={!!chatUser} onClose={() => setChatUser(null)} width={560}
-        extra={
-          <Select size="small" style={{ width: 110 }} value={chatDays} onChange={setChatDays}
-            options={[{ value: 7, label: "近 7 天" }, { value: 30, label: "近 30 天" }, { value: 0, label: "全部" }]} />
-        }
+        open={!!chatUser} onClose={() => setChatUser(null)} width={580}
       >
-        {(chatHistory || []).length === 0 ? (
-          <Empty description="暂无问答记录" />
+        {(conversations || []).length === 0 ? (
+          <Empty description="暂无会话" />
         ) : (
-          <Space direction="vertical" size="middle" style={{ width: "100%" }}>
-            {chatHistory!.map((c) => (
-              <Card key={c.id} size="small" style={{ background: "rgba(99,102,241,0.06)" }}>
-                <Space size={6} wrap style={{ marginBottom: 4 }}>
-                  <Tag color={c.outcome === "answered" ? "green" : c.outcome === "no_result" ? "orange" : "red"}>
-                    {c.outcome === "answered" ? "已回答" : c.outcome === "no_result" ? "未找到" : "失败"}
-                  </Tag>
-                  {c.model && <Tag color="geekblue">{c.model}</Tag>}
-                  <Typography.Text type="secondary" style={{ fontSize: 11 }}>{c.createdAt?.replace("T", " ").slice(0, 19)} · {c.hits} 命中 · {c.latencyMs}ms</Typography.Text>
-                </Space>
-                <Typography.Text strong>❓ {c.query}</Typography.Text>
-                {c.answer && (
-                  <div className="kb-md" style={{ marginTop: 6, fontSize: 13 }}>
-                    <ReactMarkdown remarkPlugins={[remarkGfm]} components={{
-                      code: ({ className, children }) => (
-                        <code className={className} style={{ background: "rgba(148,163,184,0.16)", padding: "1px 5px", borderRadius: 4, fontSize: "0.9em" }}>{children}</code>
-                      ),
-                    }}>{c.answer}</ReactMarkdown>
+          <Collapse accordion items={(conversations || []).map((c) => ({
+            key: c.id,
+            label: (
+              <Space>
+                <Typography.Text strong>{c.title}</Typography.Text>
+                <Tag>{c.messages.filter((m: any) => m.role === "user").length} 轮</Tag>
+                <Typography.Text type="secondary" style={{ fontSize: 11 }}>{c.updatedAt?.replace("T", " ").slice(5, 16)}</Typography.Text>
+              </Space>
+            ),
+            children: (
+              <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+                {c.messages.map((m: any, i: number) => m.role === "user" ? (
+                  <div key={i} style={{ background: "rgba(34,211,238,0.10)", padding: "6px 10px", borderRadius: 8 }}>
+                    <Typography.Text strong>❓ {m.content}</Typography.Text>
                   </div>
-                )}
-              </Card>
-            ))}
-          </Space>
+                ) : (
+                  <div key={i} style={{ background: "rgba(99,102,241,0.06)", padding: "6px 10px", borderRadius: 8 }}>
+                    {m.content ? (
+                      <div className="kb-md" style={{ fontSize: 13 }}>
+                        <ReactMarkdown remarkPlugins={[remarkGfm]} components={{
+                          code: ({ className, children }) => (
+                            <code className={className} style={{ background: "rgba(148,163,184,0.16)", padding: "1px 5px", borderRadius: 4, fontSize: "0.9em" }}>{children}</code>
+                          ),
+                        }}>{m.content}</ReactMarkdown>
+                      </div>
+                    ) : <Typography.Text type="secondary">（无答案）</Typography.Text>}
+                    {m.meta?.model && <Tag color="geekblue" style={{ marginTop: 4 }}>{m.meta.model}</Tag>}
+                    {m.meta?.error && <Tag color="red" style={{ marginTop: 4 }}>失败</Tag>}
+                  </div>
+                ))}
+              </Space>
+            ),
+          }))} />
         )}
       </Drawer>
     </>
