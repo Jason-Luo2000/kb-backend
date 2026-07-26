@@ -9,6 +9,7 @@ import Ops from "./pages/Ops";
 import Monitor from "./pages/Monitor";
 import Models from "./pages/Models";
 import Files from "./pages/Files";
+import Members from "./pages/Members";
 
 export default function App() {
   return (
@@ -21,6 +22,7 @@ export default function App() {
         <Route path="files" element={<Files />} />
         <Route path="chat" element={<Chat />} />
         <Route path="acl" element={<ACL />} />
+        <Route path="members" element={<Members />} />
         <Route path="models" element={<Models />} />
         <Route path="ops" element={<Ops />} />
         <Route path="monitor" element={<Monitor />} />

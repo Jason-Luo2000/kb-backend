@@ -1,9 +1,12 @@
 import { api } from "./api/client";
 import type {
   AuditVerify,
+  ChatModel,
+  ChatResult,
   Doc,
   DriveFile,
   KB,
+  Member,
   Me,
   ModelConfig,
   ModelDefaults,
@@ -14,6 +17,7 @@ import type {
   QuotaInfo,
   ReadAnchorResult,
   SearchResult,
+  UserKb,
 } from "./types";
 
 // ---- 身份 ----
@@ -91,11 +95,46 @@ export const search = (
     .post<SearchResult>("/v1/search", { query, knowledgeBaseIds, topK, mode })
     .then((r) => r.data);
 
+// ---- RAG 问答（/v1/chat）----
+export const listChatModels = () =>
+  api.get<ChatModel[]>("/v1/chat/models").then((r) => r.data);
+export interface ChatParams {
+  query: string;
+  knowledgeBaseIds?: string[];
+  modelId?: string;
+  systemPrompt?: string;
+  temperature?: number;
+  maxTokens?: number;
+  topK?: number;
+  similarityThreshold?: number;
+  rerank?: boolean;
+  mode?: string;
+  cite?: boolean;
+}
+export const chat = (body: ChatParams) =>
+  api.post<ChatResult>("/v1/chat", body).then((r) => r.data);
+
 // ---- ACL（admin）----
 export const grant = (kbId: string, userId: string, role = "viewer", expiresAt?: string) =>
   api.put("/v1/acl", { kbId, userId, role, expiresAt }).then((r) => r.data);
 export const revoke = (kbId: string, userId: string) =>
   api.delete("/v1/acl", { data: { kbId, userId } }).then((r) => r.data);
+
+// ---- 成员管理（/v1/admin/users，admin）----
+export const listUsers = (department?: string) =>
+  api.get<Member[]>("/v1/admin/users", { params: department ? { department } : {} }).then((r) => r.data);
+export const listDepartments = () =>
+  api.get<string[]>("/v1/admin/users/departments").then((r) => r.data);
+export const createUser = (body: { externalId: string; name?: string; department?: string; role?: string }) =>
+  api.post<{ userId: string; apiKey: string }>("/v1/admin/users", body).then((r) => r.data);
+export const updateUser = (id: string, body: { name?: string; department?: string; role?: string }) =>
+  api.patch(`/v1/admin/users/${id}`, body).then((r) => r.data);
+export const deleteUser = (id: string) =>
+  api.delete(`/v1/admin/users/${id}`).then((r) => r.data);
+export const userKbs = (id: string) =>
+  api.get<UserKb[]>(`/v1/admin/users/${id}/kbs`).then((r) => r.data);
+export const bulkGrant = (id: string, kbIds: string[], role = "viewer") =>
+  api.post<{ ok: boolean; granted: number }>(`/v1/admin/users/${id}/kbs`, { kbIds, role }).then((r) => r.data);
 
 // ---- 运维（owner）----
 export const gc = (fileId?: string, dryRun = true) =>

@@ -69,6 +69,7 @@ export interface RouteStats {
   path_a: number;
   path_b: number;
   degraded: string;
+  rerank_used?: boolean;
   latency_ms: number;
   path_a_completed_rate?: number | null;
   path_a_degraded_reason?: string;
@@ -77,6 +78,48 @@ export interface RouteStats {
 export interface SearchResult {
   hits: Hit[];
   route_stats: RouteStats;
+}
+
+// ---- RAG 问答（/v1/chat）----
+export interface ChatModel {
+  id: string;
+  name: string;
+  modelName: string;
+  isDefault: boolean;
+}
+export interface Reference {
+  index: number;
+  docId: string;
+  chunkId: string;
+  page: number | null;
+  snippet: string;
+}
+export interface ChatResult {
+  answer: string | null;
+  references: Reference[];
+  hits: Hit[];
+  route_stats: RouteStats;
+  model: string | null;
+  error: string | null;
+}
+
+// ---- 成员管理（/v1/admin/users）----
+export interface Member {
+  userId: string;
+  externalId: string;
+  name?: string | null;
+  role: string;
+  department?: string | null;
+  kbCount: number;
+  createdAt?: string | null;
+}
+export interface UserKb {
+  kbId: string;
+  name: string;
+  visibility: string;
+  role: string;
+  source: string; // 授权 | 角色/可见性 | 授权(提升)
+  canRevoke: boolean;
 }
 
 export interface ReadAnchorResult {

@@ -11,6 +11,7 @@ import {
   UserOutlined,
   RobotOutlined,
   FolderOpenOutlined,
+  TeamOutlined,
 } from "@ant-design/icons";
 import { getMe } from "../api";
 import { useAuth } from "../context/AuthContext";
@@ -40,7 +41,10 @@ export default function Layout() {
     { key: "/files", icon: <FolderOpenOutlined />, label: "文件库" },
     { key: "/chat", icon: <MessageOutlined />, label: "问答" },
   ];
-  if (me.is_admin) items.push({ key: "/acl", icon: <SafetyOutlined />, label: "授权" });
+  if (me.is_admin) {
+    items.push({ key: "/acl", icon: <SafetyOutlined />, label: "授权" });
+    items.push({ key: "/members", icon: <TeamOutlined />, label: "成员" });
+  }
   if (me.is_owner) {
     items.push({ key: "/models", icon: <RobotOutlined />, label: "模型" });
     items.push({ key: "/ops", icon: <ControlOutlined />, label: "运维" });
