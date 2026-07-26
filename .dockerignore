@@ -1,0 +1,24 @@
+# 构建上下文瘦身（后端 + 前端共用根 context）
+.venv/
+venv/
+.data/
+data/
+.git/
+.gitignore
+__pycache__/
+**/__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.claude/
+.env
+.env.example
+.env.*
+tests/
+docs/
+scripts/
+sdk/
+pi-ext/
+web/node_modules/
+web/dist/
+*.md

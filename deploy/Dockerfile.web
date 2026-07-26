@@ -1,0 +1,14 @@
+# 前端：node 构建 → nginx 托管 SPA + 反代后端
+FROM node:20-alpine AS build
+WORKDIR /build
+# 先拷 manifest 装依赖（利用层缓存）
+COPY web/package.json web/package-lock.json* ./
+RUN npm install
+# 再拷源码构建
+COPY web ./
+RUN npm run build
+
+FROM nginx:alpine
+COPY deploy/nginx.conf /etc/nginx/conf.d/default.conf
+COPY --from=build /build/dist /usr/share/nginx/html
+EXPOSE 80

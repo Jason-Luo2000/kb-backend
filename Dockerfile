@@ -1,10 +1,12 @@
 FROM python:3.11-slim
 WORKDIR /app
+# build-essential: lxml/docx 等编译；curl: 容器 healthcheck
 RUN apt-get update && apt-get install -y --no-install-recommends build-essential curl \
     && rm -rf /var/lib/apt/lists/*
 COPY pyproject.toml ./
 COPY app ./app
-RUN pip install --no-cache-dir .
+COPY deploy/entrypoint.sh /entrypoint.sh
+RUN pip install --no-cache-dir . && chmod +x /entrypoint.sh
 EXPOSE 8000
-# 先初始化（PG 表 / ES mapping / MinIO bucket），再起服务
-CMD ["sh", "-c", "python -m app.bootstrap && uvicorn app.main:app --host 0.0.0.0 --port 8000"]
+# entrypoint：等 PG 就绪 → bootstrap（建表/ES mapping/MinIO bucket/种身份）→ uvicorn
+ENTRYPOINT ["/entrypoint.sh"]

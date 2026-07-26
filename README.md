@@ -31,16 +31,25 @@
 
 ## 快速开始
 
-### A. Docker（生产形态）
+### A. Docker 一键部署（生产形态）
+
+任意装了 Docker 的干净机器：
 
 ```bash
-cp .env.example .env            # 填 ZHIPU_API_KEY
-docker compose up --build       # postgres / es / minio / redis / kb-backend
-# 容器启动自动建 PG 表 + ES mapping + MinIO bucket + default 租户/owner/api_key
-curl http://localhost:8000/healthz   # → {"ok":true}
+./deploy.sh          # 自动生成密钥 + 起 postgres/es/minio/redis/backend/web(nginx)
+                     # 脚本会打印 KB_API_KEY（owner 登录 key）
 ```
 
-> Linux 起 ES 前需 `sudo sysctl -w vm.max_map_count=262144`（macOS Docker Desktop 一般已满足）。
+打开 `http://<host>` → 用打印的 key 登录 →「模型管理」添加**任意渠道**的 embedding + LLM
+（OpenAI / Anthropic / Gemini / 本地 vLLM·BGE / 智谱 等）→ 即可上传文档、问答。
+
+- **API 直连**：`http://<host>:8000`（SDK / pi-ext）。
+- **零预置 key**：`.env.example` 模板不含任何真实凭证 / provider key，全部由 `deploy.sh`
+  现场生成（`KB_API_KEY` / `MODEL_SECRET` / PG·MinIO 凭证）或登录后自配。
+- Linux 起 ES 前需 `sudo sysctl -w vm.max_map_count=262144`（脚本会提示；macOS Docker Desktop 一般已满足）。
+- **重新部署**：保留 `.env`（含 `MODEL_SECRET`）→ `docker compose down && ./deploy.sh`；
+  要搬现有数据另走 `pg_dump` + MinIO `mc mirror` + 重解析（PG 权威，ES 可重灌）。
+- HTTPS 留给外层反代/负载均衡；本套为 80 明文。
 
 ### B. 本机内存模式（无 Docker / 无 GPU）
 

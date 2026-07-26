@@ -1,14 +1,18 @@
+# 生产形态一键部署：postgres + elasticsearch + minio + redis + kb-backend + web(nginx)
+# 所有凭证来自 .env（首次由 ./deploy.sh 现场生成；勿提交真实 .env）。
+# 直接 `docker compose up` 也可，但需先备好 .env（POSTGRES_PASSWORD 等不可空）。
 services:
   postgres:
     image: postgres:16-alpine
     environment:
-      POSTGRES_DB: kb
-      POSTGRES_USER: kb
-      POSTGRES_PASSWORD: kb_dev_pwd
-    ports: ["5432:5432"]
+      POSTGRES_DB: ${POSTGRES_DB:-kb}
+      POSTGRES_USER: ${POSTGRES_USER:-kb}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?must be set in .env}
+    ports: ["5432:5432"]          # 排障用；生产可去掉只走内部网络
     volumes: ["pgdata:/var/lib/postgresql/data"]
+    restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U kb"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-kb}"]
       interval: 5s
       timeout: 3s
       retries: 20
@@ -19,8 +23,9 @@ services:
       - discovery.type=single-node
       - xpack.security.enabled=false
       - ES_JAVA_OPTS=-Xms1g -Xmx1g
-    ports: ["9200:9200"]
+    ports: ["9200:9200"]          # 排障用；生产可去掉
     volumes: ["esdata:/usr/share/elasticsearch/data"]
+    restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "curl -fs http://localhost:9200/_cluster/health || exit 1"]
       interval: 10s
@@ -31,10 +36,11 @@ services:
     image: minio/minio:latest
     command: server /data --console-address ":9001"
     environment:
-      MINIO_ROOT_USER: kb
-      MINIO_ROOT_PASSWORD: kb_dev_pwd
-    ports: ["9000:9000", "9001:9001"]
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:?must be set in .env}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:?must be set in .env}
+    ports: ["9000:9000", "9001:9001"]   # 排障/控制台用；生产可收敛
     volumes: ["miniodata:/data"]
+    restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
       interval: 10s
@@ -43,25 +49,42 @@ services:
 
   redis:
     image: redis:7-alpine
-    ports: ["6379:6379"]
+    ports: ["6379:6379"]          # 排障用；生产可去掉
+    restart: unless-stopped
 
   kb-backend:
     build: .
+    env_file: .env                # 透传 KB_API_KEY / MODEL_SECRET / 检索参数等
+    environment:
+      # 容器内服务发现：用 compose 服务名覆盖 .env 里可能的 localhost 连接串
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-kb}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-kb}
+      ES_URL: http://elasticsearch:9200
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
+      REDIS_URL: redis://redis:6379/0
     depends_on:
       postgres: { condition: service_healthy }
       elasticsearch: { condition: service_healthy }
       minio: { condition: service_healthy }
       redis: { condition: service_started }
-    environment:
-      DATABASE_URL: postgresql+psycopg://kb:kb_dev_pwd@postgres:5432/kb
-      ES_URL: http://elasticsearch:9200
-      MINIO_ENDPOINT: minio:9000
-      MINIO_ACCESS_KEY: kb
-      MINIO_SECRET_KEY: kb_dev_pwd
-      REDIS_URL: redis://redis:6379/0
-      ZHIPU_API_KEY: ${ZHIPU_API_KEY}
-      KB_API_KEY: ${KB_API_KEY:-kb_dev_api_key}
-    ports: ["8000:8000"]
+    ports: ["8000:8000"]          # SDK / pi-ext / 直接 API；生产可只留 web:80
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://localhost:8000/healthz || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 30
+      start_period: 30s
+
+  web:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.web
+    ports: ["80:80"]              # 浏览器入口（SPA + 反代 /v1，同源免 CORS）
+    depends_on:
+      kb-backend: { condition: service_healthy }
+    restart: unless-stopped
 
 volumes:
   pgdata:
