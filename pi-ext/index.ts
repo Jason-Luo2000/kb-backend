@@ -90,6 +90,37 @@ export default function kbExtension(pi: ExtensionAPI): void {
 		},
 	});
 
+	pi.registerTool({
+		name: "kb_chat",
+		label: "知识库问答",
+		description: "RAG 问答：检索(双路+RRF+可选rerank)+LLM 生成带 [n] 引用的答案。一步出带来源的答案。",
+		promptSnippet: "kb_chat(query,{knowledgeBaseIds,modelId,temperature,topK,...}) — 带引用的 RAG 答案",
+		parameters: Type.Object({
+			query: Type.String({ description: "用户问题" }),
+			knowledgeBaseIds: Type.Optional(Type.Array(Type.String())),
+			modelId: Type.Optional(Type.String()),
+			temperature: Type.Optional(Type.Number()),
+			topK: Type.Optional(Type.Number()),
+			similarityThreshold: Type.Optional(Type.Number()),
+			rerank: Type.Optional(Type.Boolean()),
+			mode: Type.Optional(Type.Union([Type.Literal("hybrid"), Type.Literal("summary"), Type.Literal("embedding")])),
+			systemPrompt: Type.Optional(Type.String()),
+		}),
+		async execute(_id, p) {
+			const r = await kb.chat(p.query, {
+				knowledgeBaseIds: p.knowledgeBaseIds,
+				modelId: p.modelId,
+				temperature: p.temperature,
+				topK: p.topK,
+				similarityThreshold: p.similarityThreshold,
+				rerank: p.rerank,
+				mode: p.mode ?? "hybrid",
+				systemPrompt: p.systemPrompt,
+			});
+			return { content: [{ type: "text", text: JSON.stringify(r, null, 2) }] };
+		},
+	});
+
 	// 注意：kb_admin（grant/upload/purge）不作为 LLM 工具（红队：防 prompt-injection 提权），仅 admin UI/SDK。
 	pi.registerCommand({
 		name: "kb",

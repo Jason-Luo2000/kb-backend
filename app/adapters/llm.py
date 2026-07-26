@@ -31,7 +31,8 @@ class AnthropicLLM(LLMProvider):
             kwargs["base_url"] = cfg.base_url
         self._c = Anthropic(**kwargs)
 
-    def chat(self, prompt: str, system: str | None = None, max_tokens: int = 4096) -> str:
+    def chat(self, prompt: str, system: str | None = None, max_tokens: int = 4096,
+             temperature: float | None = None) -> str:
         kwargs: dict = {
             "model": self.cfg.model_name,
             "max_tokens": max_tokens,
@@ -39,6 +40,8 @@ class AnthropicLLM(LLMProvider):
         }
         if system:
             kwargs["system"] = system
+        if temperature is not None:
+            kwargs["temperature"] = temperature
         resp = self._c.messages.create(**kwargs)
         return "".join(b.text for b in resp.content if getattr(b, "type", None) == "text")
 
@@ -50,16 +53,20 @@ class OpenAILLM(LLMProvider):
         super().__init__(cfg)
         self._http = httpx.Client(timeout=60)
 
-    def chat(self, prompt: str, system: str | None = None, max_tokens: int = 4096) -> str:
+    def chat(self, prompt: str, system: str | None = None, max_tokens: int = 4096,
+             temperature: float | None = None) -> str:
         msgs: list[dict] = []
         if system:
             msgs.append({"role": "system", "content": system})
         msgs.append({"role": "user", "content": prompt})
         url = (self.cfg.base_url or "https://api.openai.com/v1").rstrip("/") + "/chat/completions"
+        body: dict = {"model": self.cfg.model_name, "max_tokens": max_tokens, "messages": msgs}
+        if temperature is not None:
+            body["temperature"] = temperature
         resp = self._http.post(
             url,
             headers={"Authorization": f"Bearer {self.cfg.api_key}"},
-            json={"model": self.cfg.model_name, "max_tokens": max_tokens, "messages": msgs},
+            json=body,
         )
         resp.raise_for_status()
         return resp.json()["choices"][0]["message"]["content"]
@@ -95,6 +102,32 @@ def chat(prompt: str, system: str | None = None, max_tokens: int | None = None, 
         raise RuntimeError("未配置 LLM（POST /v1/admin/models 或设 ZHIPU_API_KEY）")
     mt = max_tokens if max_tokens is not None else (cfg.max_tokens or settings.default_llm_max_tokens)
     return _client(cfg).chat(prompt, system, mt)
+
+
+def generate(
+    prompt: str,
+    system: str | None = None,
+    *,
+    model_id: str | None = None,
+    temperature: float | None = None,
+    max_tokens: int | None = None,
+    tenant_id: str | None = None,
+) -> tuple[str, str]:
+    """RAG 生成（/v1/chat 用）。model_id 指定则按 id 解析（get_model_config），否则租户默认。
+    返回 (text, model_name)。未配置→抛 RuntimeError（调用方降级）。"""
+    from app.models_registry import get_model_config
+
+    if model_id:
+        cfg = get_model_config(model_id, tenant_id)
+        if cfg is None or cfg.kind != "llm":
+            raise RuntimeError("KB_MODEL_NOT_FOUND")
+    else:
+        cfg = resolve_model("llm", tenant_id)
+    if cfg is None or not cfg.api_key:
+        raise RuntimeError("未配置 LLM")
+    mt = max_tokens if max_tokens is not None else (cfg.max_tokens or settings.default_llm_max_tokens)
+    text = _client(cfg).chat(prompt, system, mt, temperature)
+    return text, cfg.model_name
 
 
 def test_model(cfg: ModelConfig) -> str:

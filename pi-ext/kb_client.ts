@@ -27,7 +27,7 @@ export interface KbClientOptions {
   backoffBase?: number;
 }
 
-const TIMEOUTS = { default: 15_000, read: 8_000, admin: 30_000, upload: 120_000 } as const;
+const TIMEOUTS = { default: 15_000, read: 8_000, admin: 30_000, upload: 120_000, chat: 90_000 } as const;
 type TimeoutKey = keyof typeof TIMEOUTS;
 
 const STATUS_DEFAULTS: Record<number, string> = {
@@ -139,6 +139,28 @@ export function makeKbClient(opts: KbClientOptions) {
       }),
     cite: (answer: string, chunkIds: string[]) =>
       request<unknown>("POST", "/v1/cite", { idempotent: true, timeoutKey: "read", body: { answer, chunkIds } }),
+    // ---- RAG 问答（/v1/chat：检索 + LLM 生成；非幂等不重试，chat 长超时）----
+    listChatModels: () => request<unknown>("GET", "/v1/chat/models", { idempotent: true }),
+    chat: (
+      query: string,
+      o: {
+        knowledgeBaseIds?: string[];
+        modelId?: string;
+        systemPrompt?: string;
+        temperature?: number;
+        maxTokens?: number;
+        topK?: number;
+        similarityThreshold?: number;
+        rerank?: boolean;
+        mode?: string;
+        cite?: boolean;
+      } = {},
+    ) => {
+      const body: Record<string, unknown> = { query, mode: o.mode ?? "hybrid", cite: o.cite ?? true };
+      for (const [k, v] of Object.entries(o)) if (v !== undefined) body[k] = v;
+      // LLM 非确定性 → 非幂等（1 次，不重试）；生成慢 → chat 超时档
+      return request<unknown>("POST", "/v1/chat", { idempotent: false, timeoutKey: "chat", body });
+    },
     grant: (kbId: string, userId: string, role = "viewer", expiresAt?: string) =>
       request<unknown>("PUT", "/v1/acl", { body: { kbId, userId, role, expiresAt } }),
     revoke: (kbId: string, userId: string) =>

@@ -177,3 +177,36 @@ def test_quota_exceeded_maps(tmp_path):
     assert e.value.code == "KB_QUOTA_EXCEEDED"
     assert e.value.status == 413
     assert calls["n"] == 1  # 413 不重试（非 429/5xx）
+
+
+def test_chat_is_non_idempotent_no_retry():
+    """chat 非幂等：5xx 不重试（LLM 非确定性）。"""
+    calls = {"n": 0}
+
+    def h(req):
+        calls["n"] += 1
+        assert req.url.path == "/v1/chat"
+        return httpx.Response(500, json={})
+
+    with pytest.raises(KBServerError):
+        _client(h).chat("q")
+    assert calls["n"] == 1
+
+
+def test_chat_body_camelcase_and_defaults():
+    """chat body 用 camelCase；默认 mode=hybrid/cite=true；None 字段不发。"""
+    import json as _json
+
+    seen = {}
+
+    def h(req):
+        seen["body"] = _json.loads(req.content)
+        return httpx.Response(200, json={"answer": "a", "references": [], "hits": [], "route_stats": {}})
+
+    r = _client(h).chat("问", knowledge_base_ids=["k1"], model_id="m", temperature=0.3, top_k=5, rerank=True)
+    assert r["answer"] == "a"
+    b = seen["body"]
+    assert b["query"] == "问" and b["knowledgeBaseIds"] == ["k1"] and b["modelId"] == "m"
+    assert b["temperature"] == 0.3 and b["topK"] == 5 and b["rerank"] is True
+    assert b["mode"] == "hybrid" and b["cite"] is True
+    assert "systemPrompt" not in b and "similarityThreshold" not in b  # None 不发

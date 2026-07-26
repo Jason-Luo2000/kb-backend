@@ -106,3 +106,15 @@ def is_tenant_owner(principal: Principal) -> bool:
             )
             row = cur.fetchone()
             return bool(row and row[0] == "owner")
+
+
+def is_tenant_admin(principal: Principal) -> bool:
+    """租户 owner 或 admin（成员/授权管理用）。直接查租户角色，不被 per-kb grant 抬高。"""
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT role FROM kb_user_tenant WHERE user_id=%s AND tenant_id=%s",
+                (principal.user_id, principal.tenant_id),
+            )
+            row = cur.fetchone()
+            return bool(row and row[0] in ("owner", "admin"))

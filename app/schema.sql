@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS kb_tenant (
 CREATE TABLE IF NOT EXISTS kb_user (
   id UUID PRIMARY KEY,
   external_id VARCHAR(128) NOT NULL UNIQUE,        -- 对接 OIDC sub / SAML nameid（SSO 见 T25）
+  name VARCHAR(128),                               -- 显示名（成员管理用）
   status SMALLINT DEFAULT 1,
   created_at TIMESTAMPTZ DEFAULT now()
 );
@@ -21,8 +22,11 @@ CREATE TABLE IF NOT EXISTS kb_user_tenant (
   user_id UUID NOT NULL REFERENCES kb_user(id) ON DELETE CASCADE,
   tenant_id UUID NOT NULL REFERENCES kb_tenant(id) ON DELETE CASCADE,
   role VARCHAR(24) NOT NULL DEFAULT 'viewer',       -- owner|admin|editor|viewer（RBAC 租户内粗粒度）
+  department VARCHAR(64),                           -- 部门标签（成员管理筛选用；非组级 ACL）
   PRIMARY KEY (user_id, tenant_id)
 );
+ALTER TABLE kb_user ADD COLUMN IF NOT EXISTS name VARCHAR(128);          -- 已存库升级
+ALTER TABLE kb_user_tenant ADD COLUMN IF NOT EXISTS department VARCHAR(64);
 
 CREATE TABLE IF NOT EXISTS kb_api_key (
   id UUID PRIMARY KEY,

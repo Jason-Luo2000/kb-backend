@@ -1,11 +1,11 @@
-"""检索：双路召回 / 引用。T9：透传 principal，cite chunk 回查收敛到租户+授权 kb。"""
-from fastapi import APIRouter, Depends, Request
+"""检索：双路召回 / 引用 / RAG 问答。T9：透传 principal，cite chunk 回查收敛到租户+授权 kb。"""
+from fastapi import APIRouter, Depends, HTTPException, Request
 from psycopg.rows import dict_row
 
 from app.authz import resolve as resolve_authz
 from app.db import get_conn
 from app.middleware.auth import audit, get_principal, limiter, verify_api_key
-from app.retrieval import citation, orchestrator
+from app.retrieval import citation, generate, orchestrator
 
 router = APIRouter(prefix="/v1", dependencies=[Depends(verify_api_key)])
 
@@ -29,6 +29,63 @@ def search(request: Request, body: dict):
         ua=request.headers.get("user-agent"),
     )
     return res
+
+
+@router.get("/chat/models")  # 问答页模型下拉用（非 owner，脱敏：仅 id/name/modelName/isDefault）
+def chat_models(request: Request):
+    from app.models_registry import list_models
+
+    principal = get_principal(request)
+    rows = list_models(principal.tenant_id, include_system=True)
+    return [
+        {"id": r["id"], "name": r["name"], "modelName": r["modelName"], "isDefault": r["isDefault"]}
+        for r in rows
+        if r["kind"] == "llm"
+    ]
+
+
+@router.post("/chat")
+@limiter.limit("60/minute")
+def chat(request: Request, body: dict):
+    """RAG 问答：检索（双路+RRF+可选 rerank+threshold）→ LLM 生成带 [n] 引用的答案。
+    body: {query, knowledgeBaseIds?, modelId?, systemPrompt?, temperature?, maxTokens?,
+           topK?, similarityThreshold?, rerank?, mode="hybrid", cite=true}。
+    返 {answer, references[], hits[], route_stats, model, error}。LLM 不可用→answer=null 降级。"""
+    principal = get_principal(request)
+    query = body["query"]
+    merged, meta = orchestrator.chat_retrieve(
+        query, principal,
+        kb_ids=body.get("knowledgeBaseIds"),
+        top_k=body.get("topK"),
+        mode=body.get("mode", "hybrid"),
+        similarity_threshold=body.get("similarityThreshold"),
+        rerank=body.get("rerank"),
+    )
+    try:
+        gen = generate.generate_answer(
+            query, merged,
+            model_id=body.get("modelId"),
+            temperature=body.get("temperature"),
+            max_tokens=body.get("maxTokens"),
+            system_prompt=body.get("systemPrompt"),
+            tenant_id=principal.tenant_id,
+            cite=bool(body.get("cite", True)),
+        )
+    except RuntimeError as e:
+        if str(e) == "KB_MODEL_NOT_FOUND":
+            raise HTTPException(status_code=400, detail="KB_MODEL_NOT_FOUND") from e
+        raise
+    audit("CHAT", request, query=query, hits=[h["chunk_id"] for h in merged], ua=request.headers.get("user-agent"))
+    return {
+        "answer": gen["answer"],
+        "references": gen["references"],
+        "hits": [orchestrator._hit_view(h) for h in merged],
+        "route_stats": {k: meta[k] for k in (
+            "path_a", "path_b", "degraded", "rerank_used", "latency_ms",
+            "path_a_completed_rate", "path_a_degraded_reason")},
+        "model": gen["model"],
+        "error": gen["error"],
+    }
 
 
 @router.post("/cite")

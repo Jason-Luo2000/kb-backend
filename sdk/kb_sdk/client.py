@@ -14,7 +14,7 @@ import httpx
 from .errors import KBError, from_response
 
 _VERSION = "kb-sdk/1.0"
-_DEFAULT_TIMEOUTS = {"default": 15.0, "read": 8.0, "admin": 30.0, "upload": 120.0}
+_DEFAULT_TIMEOUTS = {"default": 15.0, "read": 8.0, "admin": 30.0, "upload": 120.0, "chat": 90.0}
 
 
 class KBClient:
@@ -130,6 +130,37 @@ class KBClient:
     def cite(self, answer: str, chunk_ids: list[str]) -> dict:
         return self._request("POST", "/v1/cite", idempotent=True, timeout_key="read",
                              json={"answer": answer, "chunkIds": chunk_ids})
+
+    # ---- RAG 问答（/v1/chat：检索 + LLM 生成；非幂等不重试，长超时）----
+    def list_chat_models(self) -> list[dict]:
+        return self._request("GET", "/v1/chat/models", idempotent=True)
+
+    def chat(
+        self,
+        query: str,
+        *,
+        knowledge_base_ids: list[str] | None = None,
+        model_id: str | None = None,
+        system_prompt: str | None = None,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
+        top_k: int | None = None,
+        similarity_threshold: float | None = None,
+        rerank: bool | None = None,
+        mode: str = "hybrid",
+        cite: bool = True,
+    ) -> dict:
+        body: dict = {"query": query, "mode": mode, "cite": cite}
+        for k, v in (
+            ("knowledgeBaseIds", knowledge_base_ids), ("modelId", model_id),
+            ("systemPrompt", system_prompt), ("temperature", temperature),
+            ("maxTokens", max_tokens), ("topK", top_k),
+            ("similarityThreshold", similarity_threshold), ("rerank", rerank),
+        ):
+            if v is not None:
+                body[k] = v
+        # LLM 非确定性 → 非幂等（1 次，不重试）；生成慢 → chat 超时档
+        return self._request("POST", "/v1/chat", idempotent=False, timeout_key="chat", json=body)
 
     # ---- ACL（非幂等，不重试）----
     def grant(self, kb_id: str, user_id: str, role: str = "viewer", expires_at: str | None = None) -> dict:
