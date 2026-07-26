@@ -51,15 +51,26 @@ def generate_answer(
     system_prompt: str | None = None,
     tenant_id: str | None = None,
     cite: bool = True,
+    history: list[dict] | None = None,
 ) -> dict:
     """返回 {answer, references, model, error}。
-    无命中→固定提示；LLM 未配置/失败→answer=None + error（端点降级）；model_id 无效→抛 RuntimeError。"""
+    无命中→固定提示；LLM 未配置/失败→answer=None + error（端点降级）；model_id 无效→抛 RuntimeError。
+    history：多轮对话上文 [{role:'user'|'assistant', content}]，拼进 prompt 让 LLM 理解指代。"""
     context, refs = build_context(merged)
     if not context:
         return {"answer": "未检索到相关资料，无法回答。", "references": [], "model": None, "error": None}
 
     system = system_prompt or (RAG_SYSTEM if cite else RAG_SYSTEM_NOCITE)
-    prompt = f"【参考资料】\n{context}\n\n【问题】\n{query}"
+    hist_block = ""
+    if history:
+        turns = [h for h in history if h.get("content")][-8:]  # 最近 8 轮，防 prompt 过长
+        if turns:
+            hist_block = "【对话历史】\n" + "".join(
+                f"{'用户' if h.get('role') == 'user' else '助手'}：{h['content']}\n" for h in turns
+            ) + "\n结合对话历史理解当前问题（如「它/这个/接着说」等指代）。\n\n"
+            if not system_prompt:
+                system = system.rstrip() + "\n若有对话历史，需结合上文理解当前问题的指代。"
+    prompt = f"{hist_block}【参考资料】\n{context}\n\n【当前问题】\n{query}"
     try:
         text, model = llm.generate(
             prompt, system, model_id=model_id, temperature=temperature,

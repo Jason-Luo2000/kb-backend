@@ -106,3 +106,26 @@ def test_chat_llm_failure_degrades(monkeypatch):
             assert len(r["hits"]) >= 1  # 检索结果仍在
         finally:
             c.delete(f"/v1/files/{doc_id}", headers=AUTH)
+
+
+def test_chat_history_passed_to_prompt(monkeypatch):
+    """多轮：history 拼进 prompt（让 LLM 理解指代）。"""
+    captured = {}
+
+    def spy(prompt, system=None, *, model_id=None, temperature=None, max_tokens=None, tenant_id=None):
+        captured["prompt"] = prompt
+        return ("续答 [1]", "test-llm")
+
+    monkeypatch.setattr("app.adapters.llm.generate", spy)
+    with TestClient(app) as c:
+        kid, doc_id = _kb_with_doc(c)
+        try:
+            r = c.post("/v1/chat", headers=AUTH, json={
+                "query": "它的优势呢", "knowledgeBaseIds": [kid],
+                "history": [{"role": "user", "content": "什么是 X"}, {"role": "assistant", "content": "X 是一个东西"}],
+            }).json()
+            assert r["answer"] == "续答 [1]"
+            assert "对话历史" in captured["prompt"]
+            assert "什么是 X" in captured["prompt"]
+        finally:
+            c.delete(f"/v1/files/{doc_id}", headers=AUTH)

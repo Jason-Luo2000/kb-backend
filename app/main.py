@@ -11,7 +11,7 @@ from app.config import settings
 from app.db import get_conn
 from app.middleware.auth import limiter
 from app.metrics import MetricsMiddleware, metrics_body
-from app.routers import admin, admin_ops, docs, files, kbs, members, models, search
+from app.routers import admin, admin_ops, analytics, docs, files, kbs, members, models, search
 
 
 @asynccontextmanager
@@ -79,3 +79,4 @@ app.include_router(admin_ops.router)
 app.include_router(models.router)
 app.include_router(files.router)
 app.include_router(members.router)
+app.include_router(analytics.router)

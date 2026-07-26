@@ -10,6 +10,20 @@ from app.retrieval import citation, generate, orchestrator
 router = APIRouter(prefix="/v1", dependencies=[Depends(verify_api_key)])
 
 
+def _log_chat(tenant_id, user_id, query, answer, model, outcome, hits, latency_ms):
+    """chat 结果埋点（best-effort，不阻塞请求）。outcome=answered|no_result|error；answer 供管理员查问答记录。"""
+    try:
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """INSERT INTO kb_chat_log(tenant_id,user_id,query,answer,model,outcome,hits,latency_ms)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s)""",
+                    (tenant_id, user_id, query, answer, model, outcome, hits, latency_ms),
+                )
+    except Exception:  # noqa: BLE001
+        pass
+
+
 @router.post("/search")
 @limiter.limit("120/minute")
 def search(request: Request, body: dict):
@@ -70,12 +84,16 @@ def chat(request: Request, body: dict):
             system_prompt=body.get("systemPrompt"),
             tenant_id=principal.tenant_id,
             cite=bool(body.get("cite", True)),
+            history=body.get("history"),
         )
     except RuntimeError as e:
         if str(e) == "KB_MODEL_NOT_FOUND":
             raise HTTPException(status_code=400, detail="KB_MODEL_NOT_FOUND") from e
         raise
     audit("CHAT", request, query=query, hits=[h["chunk_id"] for h in merged], ua=request.headers.get("user-agent"))
+    _log_chat(principal.tenant_id, principal.user_id, query, gen["answer"], gen["model"],
+              "error" if gen["error"] else ("no_result" if not merged else "answered"),
+              len(merged), meta["latency_ms"])
     return {
         "answer": gen["answer"],
         "references": gen["references"],

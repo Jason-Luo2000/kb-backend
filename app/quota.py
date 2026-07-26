@@ -66,3 +66,19 @@ def meter_ingest(conn, tenant_id: str, size_bytes: int) -> None:
                SET doc_count=kb_usage.doc_count+1, bytes=kb_usage.bytes+EXCLUDED.bytes""",
             (tenant_id, period, size_bytes),
         )
+
+
+def meter_delete(conn, tenant_id: str, size_bytes: int) -> None:
+    """删文件后计量回退（同 DELETE 事务）。kb_usage 当月 -1/-bytes，GREATEST 防负
+    （跨月删除时本月计数本不含它，clamp 在 0 不致错）。"""
+    period = _month()
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO kb_usage(tenant_id,period,doc_count,bytes) VALUES(%s,%s,0,0) ON CONFLICT DO NOTHING",
+            (tenant_id, period),
+        )
+        cur.execute(
+            """UPDATE kb_usage SET doc_count=GREATEST(doc_count-1,0),
+               bytes=GREATEST(bytes-%s,0) WHERE tenant_id=%s AND period=%s""",
+            (size_bytes or 0, tenant_id, period),
+        )

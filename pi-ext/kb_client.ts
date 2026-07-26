@@ -154,6 +154,7 @@ export function makeKbClient(opts: KbClientOptions) {
         rerank?: boolean;
         mode?: string;
         cite?: boolean;
+        history?: { role: "user" | "assistant"; content: string }[];
       } = {},
     ) => {
       const body: Record<string, unknown> = { query, mode: o.mode ?? "hybrid", cite: o.cite ?? true };

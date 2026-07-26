@@ -149,6 +149,7 @@ class KBClient:
         rerank: bool | None = None,
         mode: str = "hybrid",
         cite: bool = True,
+        history: list[dict] | None = None,
     ) -> dict:
         body: dict = {"query": query, "mode": mode, "cite": cite}
         for k, v in (
@@ -156,6 +157,7 @@ class KBClient:
             ("systemPrompt", system_prompt), ("temperature", temperature),
             ("maxTokens", max_tokens), ("topK", top_k),
             ("similarityThreshold", similarity_threshold), ("rerank", rerank),
+            ("history", history),
         ):
             if v is not None:
                 body[k] = v
