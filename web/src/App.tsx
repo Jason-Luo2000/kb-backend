@@ -4,10 +4,10 @@ import Layout from "./components/Layout";
 import KBs from "./pages/KBs";
 import Docs from "./pages/Docs";
 import Chat from "./pages/Chat";
-import ACL from "./pages/ACL";
 import Ops from "./pages/Ops";
 import Monitor from "./pages/Monitor";
 import Models from "./pages/Models";
+import Analytics from "./pages/Analytics";
 import Files from "./pages/Files";
 import Members from "./pages/Members";
 
@@ -21,11 +21,11 @@ export default function App() {
         <Route path="kbs/:kbId/docs" element={<Docs />} />
         <Route path="files" element={<Files />} />
         <Route path="chat" element={<Chat />} />
-        <Route path="acl" element={<ACL />} />
         <Route path="members" element={<Members />} />
         <Route path="models" element={<Models />} />
         <Route path="ops" element={<Ops />} />
         <Route path="monitor" element={<Monitor />} />
+        <Route path="analytics" element={<Analytics />} />
       </Route>
     </Routes>
   );

@@ -123,6 +123,33 @@ export interface UserKb {
   canRevoke: boolean;
 }
 
+// ---- 数据看板（analytics）----
+export interface AnalyticsOverview {
+  days: number;
+  total_qa: number;
+  chats: number;
+  answered: number;
+  no_result: number;
+  error: number;
+  success_rate: number | null;
+  active_users: number;
+  uploads: number;
+  rerank_uses: number;
+}
+export interface TopQuery { query: string; count: number; }
+export interface UserUsage { userId: string; externalId: string; queries: number; chats: number; uploads: number; }
+export interface ModelUsage { model: string; type: "llm" | "embedding"; calls: number; }
+export interface ChatRecord {
+  id: number;
+  query: string;
+  answer: string | null;
+  model: string | null;
+  outcome: string;
+  hits: number;
+  latencyMs: number;
+  createdAt: string | null;
+}
+
 export interface ReadAnchorResult {
   docId: string;
   anchor: string;

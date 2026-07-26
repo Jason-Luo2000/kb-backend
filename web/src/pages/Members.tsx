@@ -1,9 +1,11 @@
 import { useState } from "react";
-import { Table, Button, Space, Tag, Typography, Modal, Form, Input, Select, Drawer, Popconfirm, message, Alert, Divider } from "antd";
-import { UserAddOutlined, ReloadOutlined, ThunderboltOutlined } from "@ant-design/icons";
+import { Table, Button, Space, Tag, Typography, Modal, Form, Input, Select, Drawer, Popconfirm, message, Alert, Divider, Empty, Card } from "antd";
+import { UserAddOutlined, ReloadOutlined, ThunderboltOutlined, MessageOutlined } from "@ant-design/icons";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import {
-  listUsers, listDepartments, listGroups, createUser, updateUser, deleteUser, userKbs, bulkGrant, revoke, grantBulk, listKbs,
+  listUsers, listDepartments, listGroups, createUser, updateUser, deleteUser, userKbs, bulkGrant, revoke, grantBulk, listKbs, userChats,
 } from "../api";
 import type { Member } from "../types";
 import { usePageSize, paginationProps } from "../usePageSize";
@@ -46,6 +48,15 @@ export default function Members() {
   const [selected, setSelected] = useState<string[]>([]);
   const [editOpen, setEditOpen] = useState(false);
   const [editForm] = Form.useForm();
+
+  // 查看某成员问答记录
+  const [chatUser, setChatUser] = useState<Member | null>(null);
+  const [chatDays, setChatDays] = useState(30);
+  const { data: chatHistory } = useQuery({
+    queryKey: ["userChats", chatUser?.userId, chatDays],
+    queryFn: () => userChats(chatUser!.userId, chatDays),
+    enabled: !!chatUser,
+  });
 
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: ["users"] });
@@ -100,6 +111,7 @@ export default function Members() {
   const openCreate = () => { setEditing(null); form.resetFields(); form.setFieldsValue({ role: "viewer" }); setOpen(true); };
   const openEdit = (m: Member) => { setEditing(m); form.setFieldsValue({ externalId: m.externalId, name: m.name, department: m.department, group: m.groupName, role: m.role }); setOpen(true); };
   const openKbs = (m: Member) => { setKbUser(m); setGrantKbs([]); setGrantRole("viewer"); };
+  const openChats = (m: Member) => { setChatUser(m); setChatDays(30); };
   const openBatch = () => { setBatchOpen(true); setBKbs([]); setBRole("viewer"); setBDept(undefined); setBGroup(undefined); setBUids([]); setPreview(null); };
 
   return (
@@ -149,10 +161,11 @@ export default function Members() {
           { title: "角色", dataIndex: "role", width: 80, render: (r: string) => <Tag color={ROLE_COLOR[r] || "default"}>{r}</Tag> },
           { title: "可见库", dataIndex: "kbCount", width: 70 },
           {
-            title: "操作", width: 260,
+            title: "操作", width: 360,
             render: (_: unknown, r: Member) => (
               <Space>
                 <Button size="small" type="primary" onClick={() => openKbs(r)}>管理可见库</Button>
+                <Button size="small" icon={<MessageOutlined />} onClick={() => openChats(r)}>问答记录</Button>
                 <Button size="small" onClick={() => openEdit(r)}>编辑</Button>
                 {r.role !== "owner" && (
                   <Popconfirm title={`移除成员 ${r.externalId}？`} onConfirm={() => delMut.mutate(r.userId)}>
@@ -298,6 +311,44 @@ export default function Members() {
           </Form.Item>
         </Form>
       </Modal>
+
+      {/* 问答记录（管理员查看某成员的提问 + 答案）*/}
+      <Drawer
+        title={<Space>{chatUser?.name || chatUser?.externalId}<span style={{ color: "#8aa0c0", fontSize: 12 }}>的问答记录</span></Space>}
+        open={!!chatUser} onClose={() => setChatUser(null)} width={560}
+        extra={
+          <Select size="small" style={{ width: 110 }} value={chatDays} onChange={setChatDays}
+            options={[{ value: 7, label: "近 7 天" }, { value: 30, label: "近 30 天" }, { value: 0, label: "全部" }]} />
+        }
+      >
+        {(chatHistory || []).length === 0 ? (
+          <Empty description="暂无问答记录" />
+        ) : (
+          <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+            {chatHistory!.map((c) => (
+              <Card key={c.id} size="small" style={{ background: "rgba(99,102,241,0.06)" }}>
+                <Space size={6} wrap style={{ marginBottom: 4 }}>
+                  <Tag color={c.outcome === "answered" ? "green" : c.outcome === "no_result" ? "orange" : "red"}>
+                    {c.outcome === "answered" ? "已回答" : c.outcome === "no_result" ? "未找到" : "失败"}
+                  </Tag>
+                  {c.model && <Tag color="geekblue">{c.model}</Tag>}
+                  <Typography.Text type="secondary" style={{ fontSize: 11 }}>{c.createdAt?.replace("T", " ").slice(0, 19)} · {c.hits} 命中 · {c.latencyMs}ms</Typography.Text>
+                </Space>
+                <Typography.Text strong>❓ {c.query}</Typography.Text>
+                {c.answer && (
+                  <div className="kb-md" style={{ marginTop: 6, fontSize: 13 }}>
+                    <ReactMarkdown remarkPlugins={[remarkGfm]} components={{
+                      code: ({ className, children }) => (
+                        <code className={className} style={{ background: "rgba(148,163,184,0.16)", padding: "1px 5px", borderRadius: 4, fontSize: "0.9em" }}>{children}</code>
+                      ),
+                    }}>{c.answer}</ReactMarkdown>
+                  </div>
+                )}
+              </Card>
+            ))}
+          </Space>
+        )}
+      </Drawer>
     </>
   );
 }

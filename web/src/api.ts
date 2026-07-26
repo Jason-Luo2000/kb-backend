@@ -1,5 +1,6 @@
 import { api } from "./api/client";
 import type {
+  AnalyticsOverview,
   AuditVerify,
   ChatModel,
   ChatResult,
@@ -11,13 +12,17 @@ import type {
   ModelConfig,
   ModelDefaults,
   ModelKind,
+  ModelUsage,
   ParserConfig,
   ParserMethod,
   ProviderType,
   QuotaInfo,
   ReadAnchorResult,
   SearchResult,
+  TopQuery,
   UserKb,
+  UserUsage,
+  ChatRecord,
 } from "./types";
 
 // ---- 身份 ----
@@ -112,6 +117,7 @@ export interface ChatParams {
   rerank?: boolean;
   mode?: string;
   cite?: boolean;
+  history?: { role: "user" | "assistant"; content: string }[];
 }
 export const chat = (body: ChatParams) =>
   api.post<ChatResult>("/v1/chat", body).then((r) => r.data);
@@ -194,3 +200,15 @@ export const testModel = (id: string) =>
 // ---- 监控 ----
 export const readyz = () => api.get<Record<string, string>>("/readyz").then((r) => r.data);
 export const fetchMetrics = () => api.get<string>("/metrics", { responseType: "text" }).then((r) => r.data);
+
+// ---- 数据看板（analytics）----
+export const analyticsOverview = (days = 7) =>
+  api.get<AnalyticsOverview>("/v1/admin/analytics/overview", { params: { days } }).then((r) => r.data);
+export const analyticsTopQueries = (days = 7, limit = 20) =>
+  api.get<TopQuery[]>("/v1/admin/analytics/top-queries", { params: { days, limit } }).then((r) => r.data);
+export const analyticsUsers = (days = 7) =>
+  api.get<UserUsage[]>("/v1/admin/analytics/users", { params: { days } }).then((r) => r.data);
+export const analyticsModels = (days = 7) =>
+  api.get<ModelUsage[]>("/v1/admin/analytics/models", { params: { days } }).then((r) => r.data);
+export const userChats = (userId: string, days = 30, limit = 50) =>
+  api.get<ChatRecord[]>(`/v1/admin/analytics/users/${userId}/chats`, { params: { days, limit } }).then((r) => r.data);

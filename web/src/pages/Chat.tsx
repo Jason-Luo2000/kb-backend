@@ -50,6 +50,12 @@ export default function Chat() {
     if (!q.trim() || loading) return;
     const question = q;
     setQ("");
+    // 多轮：把已有对话作为 history 带上（最近 8 轮），让 LLM 理解上下文/指代
+    const history = msgs
+      .map((m) => (m.role === "user" ? { role: "user" as const, content: m.text || "" }
+                                 : { role: "assistant" as const, content: m.result?.answer || "" }))
+      .filter((m) => m.content)
+      .slice(-8);
     setMsgs((m) => [...m, { role: "user", text: question, kbs: s.kbIds }]);
     setLoading(true);
     try {
@@ -65,6 +71,7 @@ export default function Chat() {
         rerank: s.rerank,
         mode: s.mode,
         cite: s.cite,
+        history,
       });
       setMsgs((m) => [...m, { role: "assistant", result: r }]);
     } finally {

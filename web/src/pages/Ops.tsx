@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { getQuota, gc, reconcile, auditVerify, auditAnchor, pruneOutbox } from "../api";
 
 const Pre = ({ data }: { data: unknown }) => (
-  <pre style={{ marginTop: 12, background: "#fafafa", padding: 8, fontSize: 12, maxHeight: 240, overflow: "auto" }}>
+  <pre style={{ marginTop: 12, background: "rgba(148,163,184,0.10)", color: "#e2e8f0", padding: 10, fontSize: 12, maxHeight: 240, overflow: "auto", borderRadius: 6, border: "1px solid rgba(148,163,184,0.14)" }}>
     {JSON.stringify(data, null, 2)}
   </pre>
 );

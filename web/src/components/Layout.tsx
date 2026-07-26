@@ -4,7 +4,6 @@ import { useQuery } from "@tanstack/react-query";
 import {
   BookOutlined,
   MessageOutlined,
-  SafetyOutlined,
   ControlOutlined,
   DashboardOutlined,
   LogoutOutlined,
@@ -12,6 +11,7 @@ import {
   RobotOutlined,
   FolderOpenOutlined,
   TeamOutlined,
+  BarChartOutlined,
 } from "@ant-design/icons";
 import { getMe } from "../api";
 import { useAuth } from "../context/AuthContext";
@@ -42,13 +42,13 @@ export default function Layout() {
     { key: "/chat", icon: <MessageOutlined />, label: "问答" },
   ];
   if (me.is_admin) {
-    items.push({ key: "/acl", icon: <SafetyOutlined />, label: "授权" });
     items.push({ key: "/members", icon: <TeamOutlined />, label: "成员" });
   }
   if (me.is_owner) {
     items.push({ key: "/models", icon: <RobotOutlined />, label: "模型" });
     items.push({ key: "/ops", icon: <ControlOutlined />, label: "运维" });
     items.push({ key: "/monitor", icon: <DashboardOutlined />, label: "监控" });
+    items.push({ key: "/analytics", icon: <BarChartOutlined />, label: "看板" });
   }
   const selected = "/" + (loc.pathname.split("/")[1] || "kbs");
 
