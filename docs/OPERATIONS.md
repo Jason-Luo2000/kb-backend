@@ -80,7 +80,7 @@ SLO 告警规则 + Grafana 大盘属部署侧（待定）。
 
 完整列表见 [config.py](../app/config.py)。
 
-> 模型 provider（LLM / embedding / rerank）在「模型管理」配置，支持多渠道（OpenAI 兼容 / Anthropic / Gemini / 本地 / 智谱 等）。`ZHIPU_*` env 仍可作可选种子（bare-metal 便利），非必填。
+> 模型 provider（LLM / embedding / rerank）在「模型管理」配置，支持多渠道（OpenAI 兼容 / Anthropic / Gemini / 本地 / DeepSeek 等）。亦可经 env 种子预置（`MODEL_API_KEY` + `LLM_*` / `EMBED_*`，渠道无关），非必填。
 
 ## 脚本
 

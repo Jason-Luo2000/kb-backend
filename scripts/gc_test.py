@@ -112,7 +112,7 @@ def _seed_synthetic_v1_summary(file_id, summary_id, target_chunk_id):
                 (str(uuid.uuid4()), summary_id, file_id, target_chunk_id),
             )
     get_es().index(index=INDEX, id=summary_id, document={  # v1 退役 ES doc（available=0）
-        "content_tks": "合成 v1 总结", "q_vec_vec": [0.0] * settings.zhipu_embed_dim,
+        "content_tks": "合成 v1 总结", "q_vec_vec": [0.0] * settings.embed_dim,
         "file_id_kwd": file_id, "tenant_id_kwd": TID, "doc_type_kwd": "summary",
         "is_summary_int": 1, "available_int": 0,
     })

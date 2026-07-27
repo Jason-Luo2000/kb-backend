@@ -34,7 +34,7 @@ def ensure_index() -> None:
                 "content_tks": {"type": "text"},
                 "q_vec_vec": {
                     "type": "dense_vector",
-                    "dims": settings.zhipu_embed_dim,
+                    "dims": settings.embed_dim,
                     "index": True,
                     "similarity": "cosine",
                 },

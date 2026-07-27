@@ -78,7 +78,7 @@ def _cfg(ptype):
 def test_provider_dispatch_classes():
     assert isinstance(llm._client(_cfg("anthropic")), llm.AnthropicLLM)
     assert isinstance(llm._client(_cfg("openai")), llm.OpenAILLM)
-    assert isinstance(llm._client(_cfg("zhipu")), llm.OpenAILLM)  # zhipu/local 走 openai 兼容
+    assert isinstance(llm._client(_cfg("deepseek")), llm.OpenAILLM)  # 其它 openai 兼容 provider 走 OpenAILLM
     assert isinstance(llm._client(_cfg("local")), llm.OpenAILLM)
 
 

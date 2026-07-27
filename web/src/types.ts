@@ -199,7 +199,7 @@ export interface AuditVerify {
 
 // ---- 模型配置（M）----
 export type ModelKind = "llm" | "embedding" | "rerank";
-export type ProviderType = "openai" | "anthropic" | "zhipu" | "local" | "gemini";
+export type ProviderType = "openai" | "anthropic" | "local" | "gemini";
 
 export interface ModelConfig {
   id: string;

@@ -306,7 +306,7 @@ CREATE INDEX IF NOT EXISTS idx_msg_conv ON kb_message(conversation_id, id);
 
 -- ============ 模型 provider 注册表（M：多 provider 模型配置）============
 -- tenant_id NULL = 系统内置（env 种子，bootstrap 启动种）；租户行覆盖系统行。
--- kind: llm | embedding | rerank；provider_type: openai | anthropic | zhipu | local | gemini
+-- kind: llm | embedding | rerank；provider_type: openai | anthropic | local | gemini
 -- api_key_enc: Fernet 加密（app/crypto）；读取时解密、出 API 时脱敏。
 -- 每 (tenant_id, kind) 至多一条 is_default=1（应用层维护）。
 CREATE TABLE IF NOT EXISTS kb_model_config (

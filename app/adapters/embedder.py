@@ -1,4 +1,4 @@
-"""Embedding provider 抽象（M）：OpenAI 兼容 /embeddings（智谱 embedding / OpenAI / 本地 BGE via api / vLLM）。
+"""Embedding provider 抽象（M）：OpenAI 兼容 /embeddings（OpenAI / DeepSeek / 本地 BGE via api / vLLM 等）。
 
 模块级 embed/embed_batch 经 models_registry.resolve_model('embedding') 解析生效配置 → 缓存客户端。
 验证环境若 provider 不可用（429 / code 1113 / 网络）→ 退回确定性哈希伪向量（仅验流程，无语义；生产需真 embedding）。
@@ -74,8 +74,8 @@ def embed(text: str, tenant_id: str | None = None) -> list[float]:
 def embed_batch(texts: list[str], batch: int = 16, tenant_id: str | None = None) -> list[list[float]]:
     cfg = resolve_model("embedding", tenant_id)
     if cfg is None or not cfg.api_key:
-        raise RuntimeError("未配置 embedding（POST /v1/admin/models 或设 ZHIPU_API_KEY）")
-    dim = cfg.dim or settings.zhipu_embed_dim
+        raise RuntimeError("未配置 embedding（POST /v1/admin/models 或设 MODEL_API_KEY + EMBED_* env 种子）")
+    dim = cfg.dim or settings.embed_dim
     out: list[list[float]] = []
     for i in range(0, len(texts), batch):
         chunk = texts[i : i + batch]

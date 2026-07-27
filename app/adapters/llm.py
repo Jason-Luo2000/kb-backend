@@ -1,8 +1,8 @@
 """LLM provider 抽象（M：多 provider 运行时切换）。
 
 provider_type → 适配：
-- anthropic → Anthropic SDK（智谱 glm 的 anthropic 兼容端点 open.bigmodel.cn/api/anthropic 也走这条）
-- openai | zhipu | local → OpenAI 兼容 /chat/completions（httpx；覆盖 OpenAI/智谱-openai/本地 vLLM/Ollama/DeepSeek 等）
+- anthropic → Anthropic SDK（anthropic 兼容 /v1/messages 端点）
+- openai | local → OpenAI 兼容 /chat/completions（httpx；覆盖 OpenAI/DeepSeek/Moonshot/本地 vLLM/Ollama 等）
 - gemini → 原生 API 形状不同，stub（NotImplementedError；用 OpenAI 兼容代理或 Anthropic 适配）
 
 模块级 chat() 经 models_registry.resolve_model('llm') 解析生效配置（租户默认→系统内置→env 兜底）→
@@ -47,7 +47,7 @@ class AnthropicLLM(LLMProvider):
 
 
 class OpenAILLM(LLMProvider):
-    """OpenAI 兼容 /chat/completions（OpenAI / 智谱 openai 端点 / 本地 vLLM / Ollama / DeepSeek 等）。"""
+    """OpenAI 兼容 /chat/completions（OpenAI / DeepSeek / Moonshot / 本地 vLLM / Ollama 等）。"""
 
     def __init__(self, cfg: ModelConfig):
         super().__init__(cfg)
@@ -89,7 +89,7 @@ def _client(cfg: ModelConfig) -> LLMProvider:
             c = AnthropicLLM(cfg)
         elif pt == "gemini":
             c = GeminiLLM(cfg)
-        else:  # openai | zhipu | local
+        else:  # openai | local（及其它 OpenAI 兼容 provider）
             c = OpenAILLM(cfg)
         _cache[key] = c
     return c
@@ -99,7 +99,7 @@ def chat(prompt: str, system: str | None = None, max_tokens: int | None = None, 
     """同步对话，返回纯文本。max_tokens 省略时用模型级配置（→ default_llm_max_tokens 兜底）。"""
     cfg = resolve_model("llm", tenant_id)
     if cfg is None or not cfg.api_key:
-        raise RuntimeError("未配置 LLM（POST /v1/admin/models 或设 ZHIPU_API_KEY）")
+        raise RuntimeError("未配置 LLM（POST /v1/admin/models 或设 MODEL_API_KEY + LLM_* env 种子）")
     mt = max_tokens if max_tokens is not None else (cfg.max_tokens or settings.default_llm_max_tokens)
     return _client(cfg).chat(prompt, system, mt)
 

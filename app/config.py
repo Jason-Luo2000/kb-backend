@@ -5,13 +5,14 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
-    # 智谱（GLM + Embedding），复用 Claude Code / pi 同一把 key
-    zhipu_api_key: str = ""
-    zhipu_llm_model: str = "glm-5.2"
-    zhipu_llm_base_url: str = "https://open.bigmodel.cn/api/anthropic"
-    zhipu_embed_model: str = "embedding-3"
-    zhipu_embed_base_url: str = "https://open.bigmodel.cn/api/paas/v4"
-    zhipu_embed_dim: int = 2048
+    # 模型 env 种子（可选；渠道无关）：设 MODEL_API_KEY + 对应 base_url/model，bootstrap 时种为系统默认模型，
+    # 免登录 UI 即可用。LLM 种子按 anthropic 兼容端点、embedding 按 OpenAI 兼容 /embeddings。
+    model_api_key: str = ""
+    llm_model: str = ""
+    llm_base_url: str = ""
+    embed_model: str = ""
+    embed_base_url: str = ""
+    embed_dim: int = 2048  # 维度（env 种子 / 哈希伪向量兜底；真模型取 kb_model_config.dim）
     default_llm_max_tokens: int = 4096  # 模型级 max_tokens 缺省（模型未设时回退）
 
     # 基础设施

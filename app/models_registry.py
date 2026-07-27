@@ -79,17 +79,17 @@ def _get_default(kind: str, tenant_id: str | None) -> ModelConfig | None:
 
 
 def _env_fallback(kind: str) -> ModelConfig | None:
-    """pre-bootstrap / 无配置兜底：从 env 智谱配置合成（rerank 无 → None）。"""
-    if not settings.zhipu_api_key:
+    """pre-bootstrap / 无配置兜底：从 env 模型种子合成（渠道无关；rerank 无 → None）。"""
+    if not settings.model_api_key:
         return None
-    if kind == "llm":
-        return ModelConfig(None, "llm", "anthropic", settings.zhipu_llm_base_url, settings.zhipu_api_key,
-                           settings.zhipu_llm_model, None, "zhipu-llm(env)", True,
+    if kind == "llm" and settings.llm_base_url and settings.llm_model:
+        return ModelConfig(None, "llm", "anthropic", settings.llm_base_url, settings.model_api_key,
+                           settings.llm_model, None, "llm(env)", True,
                            max_tokens=settings.default_llm_max_tokens)
-    if kind == "embedding":
-        return ModelConfig(None, "embedding", "openai", settings.zhipu_embed_base_url, settings.zhipu_api_key,
-                           settings.zhipu_embed_model, settings.zhipu_embed_dim, "zhipu-embed(env)", True)
-    return None  # rerank 无 env 兜底 → 未配置
+    if kind == "embedding" and settings.embed_base_url and settings.embed_model:
+        return ModelConfig(None, "embedding", "openai", settings.embed_base_url, settings.model_api_key,
+                           settings.embed_model, settings.embed_dim, "embed(env)", True)
+    return None  # rerank 无 env 兜底 / 种子不全 → None
 
 
 def resolve_model(kind: str, tenant_id: str | None = None) -> ModelConfig | None:

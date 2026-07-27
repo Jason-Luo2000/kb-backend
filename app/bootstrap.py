@@ -79,19 +79,23 @@ def bootstrap_identities() -> None:
 
 
 def bootstrap_models() -> None:
-    """M：把 env 智谱配置种为系统内置默认（tenant_id NULL, is_default=1）——幂等。
-    无系统行时才种，使运行时仍可被租户行/管理端点覆盖；env key 未配则跳过。"""
+    """M：把 env 模型种子种为系统内置默认（tenant_id NULL, is_default=1）——幂等。
+    渠道无关：填任意 provider 的 MODEL_API_KEY + base_url + model。LLM 种子按 anthropic 兼容端点、
+    embedding 按 OpenAI 兼容 /embeddings。无系统行时才种；MODEL_API_KEY 未配或某 kind 配置不全则跳过该 kind。"""
     from app import crypto
     from app.db import get_conn
 
-    if not settings.zhipu_api_key:
+    if not settings.model_api_key:
         return
-    seeds = [
-        ("llm", "zhipu-glm(env)", "anthropic", settings.zhipu_llm_base_url,
-         settings.zhipu_api_key, settings.zhipu_llm_model, None, settings.default_llm_max_tokens),
-        ("embedding", "zhipu-embedding(env)", "openai", settings.zhipu_embed_base_url,
-         settings.zhipu_api_key, settings.zhipu_embed_model, settings.zhipu_embed_dim, None),
-    ]
+    seeds: list[tuple] = []
+    if settings.llm_base_url and settings.llm_model:
+        seeds.append(("llm", "llm(env)", "anthropic", settings.llm_base_url,
+                      settings.model_api_key, settings.llm_model, None, settings.default_llm_max_tokens))
+    if settings.embed_base_url and settings.embed_model:
+        seeds.append(("embedding", "embedding(env)", "openai", settings.embed_base_url,
+                      settings.model_api_key, settings.embed_model, settings.embed_dim, None))
+    if not seeds:
+        return
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute("SELECT 1 FROM kb_model_config WHERE tenant_id IS NULL LIMIT 1")

@@ -41,7 +41,7 @@
 ```
 
 打开 `http://<host>` → 用打印的 key 登录 →「模型管理」添加**任意渠道**的 embedding + LLM
-（OpenAI / Anthropic / Gemini / 本地 vLLM·BGE / 智谱 等）→ 即可上传文档、问答。
+（OpenAI / Anthropic / Gemini / 本地 vLLM·BGE / DeepSeek 等）→ 即可上传文档、问答。
 
 - **API 直连**：`http://<host>:8000`（SDK / pi-ext）。
 - **零预置 key**：`.env.example` 模板不含任何真实凭证 / provider key，全部由 `deploy.sh`

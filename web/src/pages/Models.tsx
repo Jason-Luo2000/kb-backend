@@ -31,8 +31,7 @@ import type { ModelConfig, ModelKind, ProviderType } from "../types";
 const KIND_LABEL: Record<ModelKind, string> = { llm: "LLM 对话", embedding: "向量嵌入", rerank: "重排" };
 const PROVIDERS: { value: ProviderType; label: string }[] = [
   { value: "openai", label: "OpenAI 兼容（OpenAI / DeepSeek / Moonshot / vLLM …）" },
-  { value: "anthropic", label: "Anthropic（含智谱 glm anthropic 端点）" },
-  { value: "zhipu", label: "智谱（OpenAI 兼容端点）" },
+  { value: "anthropic", label: "Anthropic 兼容（/v1/messages）" },
   { value: "local", label: "本地（Ollama / vLLM，OpenAI 兼容）" },
   { value: "gemini", label: "Gemini（需代理，暂未适配）" },
 ];
@@ -194,7 +193,7 @@ export default function Models() {
       >
         <Form form={form} layout="vertical">
           <Form.Item name="name" label="显示名称" rules={[{ required: true }]}>
-            <Input placeholder="如 zhipu-glm" />
+            <Input placeholder="如 gpt-4o / claude-sonnet-4-5" />
           </Form.Item>
           <Form.Item name="kind" label="类型" rules={[{ required: true }]}>
             <Select
@@ -209,7 +208,7 @@ export default function Models() {
             <Input placeholder="https://api.openai.com/v1" />
           </Form.Item>
           <Form.Item name="modelName" label="模型名" rules={[{ required: true }]}>
-            <Input placeholder="如 gpt-4o / embedding-3 / bge-reranker-v2-m3" />
+            <Input placeholder="如 text-embedding-3 / bge-m3 / bge-reranker-v2-m3" />
           </Form.Item>
           <Form.Item noStyle shouldUpdate={(prev, cur) => prev.kind !== cur.kind}>
             {({ getFieldValue }) =>

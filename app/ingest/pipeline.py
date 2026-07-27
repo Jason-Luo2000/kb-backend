@@ -323,7 +323,7 @@ def ingest_file(file_id: str) -> dict:
             with conn.cursor() as cur:
                 cur.execute(
                     "INSERT INTO kb_ingest_cost_log(tenant_id,file_id,chunks,tokens,model) VALUES (%s,%s,%s,%s,%s)",
-                    (tenant_id, file_id, len(new_chunks), tokens, settings.zhipu_embed_model),
+                    (tenant_id, file_id, len(new_chunks), tokens, settings.embed_model),
                 )
     except Exception:  # noqa: BLE001
         pass
